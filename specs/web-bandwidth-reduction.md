@@ -87,7 +87,7 @@ From the trace and the current code, the expensive flows are:
 - Make switching between recent sessions feel local after the first open
 - Avoid re-downloading message history the client already has
 - Fetch old history only when the user scrolls back
-- Fetch diff content only when the review panel or a diff item is actually expanded
+- Fetch diff content only when each diff item is actually expanded
 - Use additive API changes when possible
 - Turn on transport compression regardless of which higher-level design we choose
 
@@ -199,7 +199,7 @@ A good first step here is: send a list of messages the client already has and ge
 For diffs specifically, the sync shape should avoid returning full patch bodies by default:
 
 - return file-level diff metadata first
-- fetch the actual patch or hunk data only when the user opens the review panel or expands a specific diff
+- fetch the actual patch or hunk data only when the user expands that specific diff
 - keep the same diff-style sync pattern for knowing which files changed, were removed, or need refresh
 
 ### Why it helps
@@ -309,7 +309,7 @@ The best fit for this app is not "summary rows first." The best fit is:
 1. enable gzip or brotli for large API request and response bodies, including `prompt_async`
 2. reduce or remove full-message prefetch for inactive sessions
 3. make sure history loading stays strictly scroll-driven
-4. make sure diff patches only load on review-panel open or diff expansion
+4. make sure diff patches only load for the specific diff rows the user expands
 
 ### Phase 2: Better Session Reuse
 
