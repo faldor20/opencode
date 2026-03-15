@@ -87,6 +87,7 @@ From the trace and the current code, the expensive flows are:
 - Make switching between recent sessions feel local after the first open
 - Avoid re-downloading message history the client already has
 - Fetch old history only when the user scrolls back
+- Fetch diff content only when the review panel or a diff item is actually expanded
 - Use additive API changes when possible
 - Turn on transport compression regardless of which higher-level design we choose
 
@@ -195,6 +196,12 @@ Examples of response models:
 
 A good first step here is: send a list of messages the client already has and get back only the messages it still needs. That is simpler than a fully general CRDT-style sync model and still gives most of the benefit.
 
+For diffs specifically, the sync shape should avoid returning full patch bodies by default:
+
+- return file-level diff metadata first
+- fetch the actual patch or hunk data only when the user opens the review panel or expands a specific diff
+- keep the same diff-style sync pattern for knowing which files changed, were removed, or need refresh
+
 ### Why it helps
 
 This directly attacks repeated large payloads:
@@ -252,21 +259,24 @@ Lower risk than event-only sync, because the repair path is explicit.
 
 ### Design
 
-Enable gzip or brotli for all large JSON responses by default.
+Enable gzip or brotli for all heavy request and response bodies by default.
 
 This should apply to:
 
 - message pages
 - session sync responses
 - todo responses
-- diff responses
+- diff metadata responses
+- expanded diff patch responses
 - file reads where text content is returned
+- prompt transport such as `POST /session/:sessionID/prompt_async`
+- other prompt/session endpoints that can carry large request bodies or streamed JSON payloads
 
 This should not be optional or deferred. It is the baseline.
 
 ### Why it helps
 
-The heavy responses in this app are mostly text and JSON. They should compress well, especially message parts and diffs.
+The heavy payloads in this app are mostly text and JSON. They should compress well, especially message parts, diff patches, and prompt request bodies.
 
 Compression does not solve over-fetching, but it lowers the cost of every remaining request immediately.
 
@@ -296,9 +306,10 @@ The best fit for this app is not "summary rows first." The best fit is:
 
 ### Phase 1: Cheap Wins
 
-1. enable gzip or brotli for large API responses
+1. enable gzip or brotli for large API request and response bodies, including `prompt_async`
 2. reduce or remove full-message prefetch for inactive sessions
 3. make sure history loading stays strictly scroll-driven
+4. make sure diff patches only load on review-panel open or diff expansion
 
 ### Phase 2: Better Session Reuse
 
@@ -309,7 +320,7 @@ The best fit for this app is not "summary rows first." The best fit is:
 ### Phase 3: Incremental Sync
 
 1. add `message/sync` with a simple "here is what I have" request
-2. add the same pattern for `todo` and `diff`
+2. add the same pattern for `todo` and `diff`, with diff metadata first and patch hydration on expansion
 3. use those sync endpoints on session switch, reconnect, and resume
 
 ### Phase 4: Tighten The Event Story
@@ -323,6 +334,7 @@ The best fit for this app is not "summary rows first." The best fit is:
 If we want the biggest bandwidth improvement with the right product assumptions:
 
 - **most important:** cache session state locally and sync by diff
-- **lowest-risk immediate win:** always-on compression
+- **lowest-risk immediate win:** always-on compression, including prompt transports like `prompt_async`
 - **best near-term behavior fix:** lazy back-scroll loading and less eager prefetch
+- **best diff behavior fix:** lazy diff patch loading on expansion instead of full diff payloads up front
 - **best long-term design:** events for live updates plus revision-aware sync endpoints for recovery
