@@ -6,224 +6,323 @@ Reduce the amount of data the web UI moves between client and server when they a
 
 ## Context
 
-The current web app assumes that HTTP traffic is usually local, so it eagerly bootstraps a lot of state and often requests full payloads instead of lighter projections.
+This app is an AI code editor. The message timeline is not a secondary panel. It is the main product surface, and real use looks like:
 
-The biggest hotspot is the session message API:
+- staring at the timeline most of the time
+- scrolling back through older turns
+- switching between sessions often
+- revisiting recently opened sessions
+- keeping diffs and todos in sync while the session is active
 
-- `GET /session/:sessionID/message?limit=200` currently returns `MessageV2.WithParts[]`
-- the server route in `packages/opencode/src/server/routes/session.ts` always serializes full `info + parts`
-- the client path in `packages/app/src/context/sync.tsx` stores every returned message and part in memory
-- `packages/app/src/pages/layout.tsx` also prefetches the same message page for recent sessions
+That changes the design constraints.
 
-That architecture is cheap on localhost, but it gets expensive across a network because the same large payload is transferred, parsed, and merged multiple times.
+The previous idea of treating most timeline rows as summaries is not a good default for this product. We should assume the client usually needs the real message data for the current session, and optimize around:
 
-The recorded trace shows the same pattern:
+- loading older history only when the user scrolls back
+- reusing session state already fetched on the client when the user switches sessions
+- syncing by asking for only what changed instead of re-fetching full payloads
+- always compressing large responses
 
-- `session/.../message?limit=16` returned about `290 KB`
-- `session/.../message?limit=200` returned about `21.2 MB`
-- `session/.../diff` returned about `19 KB`
-- `file?path=` returned about `4-7 KB`
-- `global/health` is tiny, but happens repeatedly
+## What The Current Architecture Already Does
 
-The trace suggests the main problem is not request count alone. The main problem is that a few requests send far more data than the UI needs for first paint.
+The current codebase already has some of the building blocks for a better network story.
 
-## What Is Triggering The Requests Today
+### Message history is paginated
 
-These are the main request sources in the current codebase.
+`packages/opencode/src/server/routes/session.ts` supports:
 
-| Request | Current trigger | Code |
+- `GET /session/:sessionID/message?limit=...`
+- `GET /session/:sessionID/message?limit=...&before=<cursor>`
+
+The client already uses that in `packages/app/src/context/sync.tsx`:
+
+- `sync.session.sync(sessionID)` loads the first page
+- `sync.session.history.loadMore(sessionID)` loads older history with `before`
+
+So lazy loading older messages is already close to the current architecture.
+
+### The client already caches per-session state
+
+The client store already caches:
+
+- `message`
+- `part`
+- `todo`
+- `session_diff`
+- `session_status`
+
+See `packages/app/src/context/global-sync/types.ts` and `packages/app/src/context/global-sync/session-cache.ts`.
+
+There is already eviction logic with `SESSION_CACHE_LIMIT = 40`, and session switching already tries to reuse cached message state when it still exists.
+
+### The server already emits update events
+
+The system already publishes events for:
+
+- `message.updated`
+- `message.part.updated`
+- `message.part.delta`
+- `todo.updated`
+- `session.diff`
+
+So the repo is not starting from zero on incremental sync. The missing piece is that reconnect, revisit, and catch-up flows still fall back to fetching full endpoint results.
+
+## Requests That Matter Most
+
+From the trace and the current code, the expensive flows are:
+
+| Request | Current behavior | Why it hurts |
 | --- | --- | --- |
-| `GET /global/health` | Initial global bootstrap and server health checks | `packages/app/src/context/global-sync/bootstrap.ts`, `packages/app/src/utils/server-health.ts` |
-| `GET /path`, `GET /global/config`, provider/project bootstrap calls | App startup and directory bootstrap | `packages/app/src/context/global-sync/bootstrap.ts` |
-| `GET /session/:id` | Session page hydration | `packages/app/src/context/sync.tsx` |
-| `GET /session/:id/message?limit=...` | Session timeline load and background prefetch | `packages/app/src/context/sync.tsx`, `packages/app/src/pages/layout.tsx` |
-| `GET /session/:id/todo` | Session page hydration and refresh | `packages/app/src/context/sync.tsx` |
-| `GET /find/file`, `GET /file/file`, `GET /file/content` | File picker and file tree interactions | `packages/app/src/context/file.tsx` |
+| `GET /session/:id/message?limit=200` | returns full `MessageV2.WithParts[]` | dominant payload, observed at ~21.2 MB |
+| `GET /session/:id/message?limit=16` | also returns full parts | still large for an initial page at ~290 KB |
+| `GET /session/:id/diff` | returns the full diff list for the session/message | fine once, expensive if repeated |
+| `GET /session/:id/todo` | returns the whole todo list | wasteful when only a few items changed |
+| background message prefetch in `packages/app/src/pages/layout.tsx` | fetches full message pages for recent sessions | duplicates a lot of payload that may already be cached locally |
 
-This matters because the largest response is also the most central one: the session timeline.
+`global/health` is noisy, but it is not the main bandwidth problem. Compression can help there a little, but the main win has to come from session state and history sync.
 
 ## Design Goals
 
-- Keep the first session render fast over a network
-- Preserve the current session model and timeline UI where possible
-- Avoid broad server/client rewrites unless the expected bandwidth win is large
-- Prefer additive API changes over breaking payload changes
+- Keep the current session timeline fully usable
+- Make switching between recent sessions feel local after the first open
+- Avoid re-downloading message history the client already has
+- Fetch old history only when the user scrolls back
+- Use additive API changes when possible
+- Turn on transport compression regardless of which higher-level design we choose
 
-## Option 1: Message Summaries First, Parts On Demand
-
-### Design
-
-Add a lighter message list shape for the timeline:
-
-- extend `GET /session/:id/message` with a projection like `projection=summary`
-- return only `info` plus small derived fields needed for the timeline, such as:
-  - `id`
-  - `role`
-  - `time`
-  - short text preview
-  - part kinds
-  - file count / diff count
-  - flags like `has_parts`, `has_tool_calls`, `has_synthetic`
-- keep full `parts` behind either:
-  - `GET /session/:id/message/:messageID`, or
-  - a new batch hydrate endpoint for a list of message IDs
-
-Use the summary view for:
-
-- initial timeline load
-- session prefetch in `packages/app/src/pages/layout.tsx`
-- inactive offscreen turns
-
-Fetch full parts only when a turn becomes visible, expands, or needs rich rendering.
-
-### Why it helps
-
-The current `limit=200` response is large because every message carries all of its parts. Splitting summary data from part data attacks the biggest payload directly.
-
-### Difficulty
-
-**Medium**
-
-It changes both server and client, but the change can be additive and rolled out behind a new query parameter.
-
-### Bug risk
-
-**Medium**
-
-The main risk is missing a timeline feature that currently reads full parts immediately, especially synthetic text, code comments, or file-change rendering. That risk is manageable if summary payloads advertise what rich data still exists and the client hydrates before rendering those cases.
-
-## Option 2: Keep One Initial Page, Then Stream Deltas
+## Option 1: Lean Into History Pagination And Stop Eager History Fetching
 
 ### Design
 
-Keep the current first page request, then stop re-fetching large message pages once the client is caught up.
+Use the existing cursor model as the main history transport:
 
-Possible shape:
+- load only the newest page on first open
+- keep older pages unloaded until the user scrolls back
+- stop background prefetch from fetching full message pages for sessions that are not active
+- if prefetch remains, prefetch only session metadata or a tiny newest window
 
-- first load uses the existing cursor page
-- after that, session updates arrive as small SSE events for:
-  - `message_added`
-  - `message_updated`
-  - `message_removed`
-  - `todo_changed`
-- the client merges those deltas into the existing store instead of reloading `limit=200`
-
-This is a natural fit with the existing SSE architecture in `packages/opencode/src/server/routes/global.ts`.
+This is not a new architecture. It is mostly a policy change on top of the existing `before` cursor flow.
 
 ### Why it helps
 
-This reduces repeated large transfers for active sessions and revisits. It does not shrink the first load as much as Option 1, but it avoids paying the same cost again and again.
+This matches the product better than summary rows:
 
-### Difficulty
-
-**High**
-
-It requires new event contracts, careful client merge logic, and versioning so reconnects and missed events can recover safely.
-
-### Bug risk
-
-**High**
-
-Realtime delta systems are easy to get subtly wrong: duplicates, out-of-order updates, reconnect gaps, and cache divergence are the likely failure modes.
-
-## Option 3: Add Bootstrap Tiers And Skip Non-Critical Fetches
-
-### Design
-
-Keep the current endpoints, but make the app fetch less on startup and less in the background.
-
-Examples:
-
-- do not prefetch large message pages for sessions that are not opened yet
-- load `todo` only when the side panel is visible
-- keep `session.get` and `session.list`, but avoid pairing them immediately with `session.messages` unless the page actually needs the timeline
-- add lightweight bootstrap variants for frequently fetched endpoints
-- use `ETag` or revision headers for small mutable resources like `todo`, `config`, and `path`
-
-This is the least invasive architectural change because it mostly changes request timing and payload selection rather than the data model.
-
-### Why it helps
-
-The trace shows extra background traffic around session load. Even if the message payload shape stays the same, not asking for it until needed reduces bandwidth immediately.
-
-### Difficulty
-
-**Low to medium**
-
-Most of the work is in the app fetch policy, plus optional additive cache headers on the server.
-
-### Bug risk
-
-**Low to medium**
-
-The main risk is stale or missing side-panel state because something that used to be eagerly loaded becomes lazy. That is usually easier to test than a new sync protocol.
-
-## Option 4: Compression And Chunked File Reads
-
-### Design
-
-Make the transport layer and file APIs cheaper without changing the core session model:
-
-- enable gzip or brotli for large JSON responses
-- add chunked or preview reads for `GET /file/content`
-- add preview modes for diff-heavy or file-heavy payloads where full text is not needed
-
-### Why it helps
-
-The large session payloads are mostly text and should compress well. This is a good baseline improvement even if a larger architectural change happens later.
+- the current session still gets real messages immediately
+- older history moves behind an intentional user action
+- inactive sessions stop pulling large message pages in the background
 
 ### Difficulty
 
 **Low**
 
-Compression is usually a server middleware change. File chunking is a slightly larger but still localized API addition.
+The pagination path already exists.
 
 ### Bug risk
 
 **Low**
 
-Compression is a mature mechanism. File chunking has some UX edge cases, but the blast radius is much smaller than changing session synchronization.
+The biggest risk is scroll behavior around history loading, but the data model stays the same.
 
-### Limitation
+## Option 2: Make Session Switching Reuse Local State Aggressively
 
-Compression helps bandwidth, but it does not fix server serialization cost, client parse cost, or repeated large fetches. It should be treated as a baseline improvement, not the full solution.
+### Design
 
-## Recommended Rollout
+Treat recent session state as a client-side cache that survives switching:
 
-### Phase 1
+- preserve message, part, todo, diff, and status state for recently viewed sessions
+- on session switch, show cached state immediately if present
+- only fetch the gap since the last known revision instead of reloading the whole session
+- make eviction target age and memory pressure rather than simple recency alone
 
-Land the lowest-risk wins first:
+This builds directly on the existing caches in `global-sync`.
 
-1. enable compression for large JSON responses
-2. stop background prefetch of full message pages where the UI only needs session metadata
-3. lazily load `todo` and similar side data
+### Why it helps
 
-### Phase 2
+The product involves constant session switching. If the client throws away a recently viewed session or re-fetches it wholesale, bandwidth and latency both stay high.
 
-Attack the largest payload directly:
+The biggest UX win after first load is likely: "switch back to a session and it is already there."
 
-1. add `projection=summary` to `GET /session/:id/message`
-2. switch timeline bootstrap and layout prefetch to the summary view
-3. hydrate full message parts on demand for visible or expanded turns
+### Difficulty
 
-### Phase 3
+**Medium**
 
-Only if network usage is still too high:
+The store and eviction machinery already exist, but they need stronger cache semantics and a way to validate freshness cheaply.
 
-1. introduce SSE message deltas or another incremental sync model
-2. use revisions so reconnecting clients can safely recover if they miss events
+### Bug risk
+
+**Medium**
+
+The risk is stale state after switching if freshness rules are weak or if events are missed.
+
+## Option 3: Add Diff-Style Sync Endpoints For Messages, Todos, And Diffs
+
+### Design
+
+Add revision-aware sync endpoints so the client can say what it already has and receive only what it needs.
+
+For the first iteration, keep it simple:
+
+- the client sends the IDs or revision markers it already has
+- the server returns:
+  - new messages
+  - updated messages
+  - removed message IDs
+  - updated parts or part deltas
+
+Possible shapes:
+
+```http
+POST /session/:id/message/sync
+POST /session/:id/todo/sync
+POST /session/:id/diff/sync
+```
+
+Examples of request models:
+
+- `messageIDs: string[]`
+- `partIDs: string[]`
+- `revision: string`
+- `todo_revision: string`
+- `diff_revision: string`
+
+Examples of response models:
+
+- `added`
+- `updated`
+- `removed`
+- `complete`
+- `next_revision`
+
+The user suggestion is a good first step here: "send a list of messages we have and get back the messages we need." That is simpler than a fully general CRDT-style sync model and still gives most of the benefit.
+
+### Why it helps
+
+This directly attacks repeated large payloads:
+
+- revisiting a session no longer requires a full `limit=200`
+- todos no longer need a full list fetch when one item changes
+- diffs no longer need a full refresh when only one file changed
+
+It also aligns with the fact that the server already emits update events; the sync endpoint becomes the reconnect and catch-up path.
+
+### Difficulty
+
+**Medium to high**
+
+It requires new API design and server-side comparison logic, but it can be introduced endpoint by endpoint.
+
+### Bug risk
+
+**Medium to high**
+
+The main risks are incorrect diffing, missing removals, and revision mismatches. Those are more tractable than a fully event-only model because the client can still recover with a bounded resync.
+
+## Option 4: Use Events For Live Updates, Sync Endpoints For Recovery
+
+### Design
+
+Make the architecture explicitly two-layer:
+
+- SSE events push live updates while the session is active
+- sync endpoints repair gaps on reconnect, tab restore, or session switch
+
+That means:
+
+- do not rely on events alone as the source of truth
+- do not rely on large full reloads as the only recovery path
+- combine the existing event model with revision-aware catch-up APIs
+
+### Why it helps
+
+The repo already emits `message.updated`, `message.part.updated`, `todo.updated`, and `session.diff`. The missing piece is robust catch-up when the client was away or its cache was evicted.
+
+### Difficulty
+
+**Medium**
+
+Much of the event side already exists.
+
+### Bug risk
+
+**Medium**
+
+Lower risk than event-only sync, because the repair path is explicit.
+
+## Option 5: Always Enable Compression
+
+### Design
+
+Enable gzip or brotli for all large JSON responses by default.
+
+This should apply to:
+
+- message pages
+- session sync responses
+- todo responses
+- diff responses
+- file reads where text content is returned
+
+This should not be optional or deferred. It is the baseline.
+
+### Why it helps
+
+The heavy responses in this app are mostly text and JSON. They should compress well, especially message parts and diffs.
+
+Compression does not solve over-fetching, but it lowers the cost of every remaining request immediately.
+
+### Difficulty
+
+**Low**
+
+This is mostly transport/server middleware work.
+
+### Bug risk
+
+**Low**
+
+Very mature mechanism, small product-surface risk.
+
+## Recommended Direction
+
+The best fit for this app is not "summary rows first." The best fit is:
+
+1. **Always enable compression**
+2. **Only load older history when the user scrolls back**
+3. **Cache recent session state on the client and reuse it when switching**
+4. **Add diff-style sync endpoints so the client can send what it has and get back only what changed**
+5. **Use existing live events for active updates, with sync endpoints as the recovery path**
+
+## Suggested Rollout
+
+### Phase 1: Cheap Wins
+
+1. enable gzip or brotli for large API responses
+2. reduce or remove full-message prefetch for inactive sessions
+3. make sure history loading stays strictly scroll-driven
+
+### Phase 2: Better Session Reuse
+
+1. strengthen recent-session cache reuse on the client
+2. make session switching prefer cached state immediately
+3. add freshness markers so the client can check whether cached state is still current without a full reload
+
+### Phase 3: Incremental Sync
+
+1. add `message/sync` with a simple "here is what I have" request
+2. add the same pattern for `todo` and `diff`
+3. use those sync endpoints on session switch, reconnect, and resume
+
+### Phase 4: Tighten The Event Story
+
+1. keep SSE for live updates
+2. use the new sync endpoints to fill gaps after disconnects or evictions
+3. reserve full reloads for explicit recovery or version mismatch
 
 ## Recommendation Summary
 
-If the goal is the best bandwidth win per unit of risk, the strongest path is:
+If we want the biggest bandwidth improvement with the right product assumptions:
 
-1. **Option 4 first** for cheap baseline savings
-2. **Option 3 next** to reduce unnecessary fetches
-3. **Option 1 as the main architectural fix** because it directly addresses the `21 MB` message response
-4. **Option 2 only if needed** after the lighter payload path exists
-
-In short:
-
-- **biggest win:** message summaries plus lazy part hydration
-- **easiest win:** compression and less eager fetching
-- **highest risk:** full incremental delta sync
+- **most important:** cache session state locally and sync by diff
+- **lowest-risk immediate win:** always-on compression
+- **best near-term behavior fix:** lazy back-scroll loading and less eager prefetch
+- **best long-term design:** events for live updates plus revision-aware sync endpoints for recovery
