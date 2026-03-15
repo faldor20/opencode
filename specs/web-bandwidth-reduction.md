@@ -6,7 +6,7 @@ Reduce the amount of data the web UI moves between client and server when they a
 
 ## Context
 
-This app is an AI code editor. The message timeline is not a secondary panel. It is the main product surface, and real use looks like:
+This app is an AI code editor, and the message timeline is not a secondary panel. It is the main product surface, and real use looks like:
 
 - staring at the timeline most of the time
 - scrolling back through older turns
@@ -53,7 +53,7 @@ The client store already caches:
 
 See `packages/app/src/context/global-sync/types.ts` and `packages/app/src/context/global-sync/session-cache.ts`.
 
-There is already eviction logic with `SESSION_CACHE_LIMIT = 40`, and session switching already tries to reuse cached message state when it still exists.
+There is already eviction logic with `SESSION_CACHE_LIMIT = 40` in `packages/app/src/context/global-sync/session-cache.ts`, and session switching already tries to reuse cached message state when it still exists.
 
 ### The server already emits update events
 
@@ -132,7 +132,7 @@ Treat recent session state as a client-side cache that survives switching:
 - preserve message, part, todo, diff, and status state for recently viewed sessions
 - on session switch, show cached state immediately if present
 - only fetch the gap since the last known revision instead of reloading the whole session
-- make eviction target age and memory pressure rather than simple recency alone
+- make eviction target time since last access and memory pressure rather than simple recency alone
 
 This builds directly on the existing caches in `global-sync`.
 
@@ -193,7 +193,7 @@ Examples of response models:
 - `complete`
 - `next_revision`
 
-The user suggestion is a good first step here: "send a list of messages we have and get back the messages we need." That is simpler than a fully general CRDT-style sync model and still gives most of the benefit.
+A good first step here is: send a list of messages the client already has and get back only the messages it still needs. That is simpler than a fully general CRDT-style sync model and still gives most of the benefit.
 
 ### Why it helps
 
