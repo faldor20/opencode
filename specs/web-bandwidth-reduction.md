@@ -55,7 +55,7 @@ This matters because the largest response is also the most central one: the sess
 
 Add a lighter message list shape for the timeline:
 
-- extend `GET /session/:id/message` with a projection like `view=summary`
+- extend `GET /session/:id/message` with a projection like `projection=summary`
 - return only `info` plus small derived fields needed for the timeline, such as:
   - `id`
   - `role`
@@ -102,10 +102,10 @@ Possible shape:
 
 - first load uses the existing cursor page
 - after that, session updates arrive as small SSE events for:
-  - message added
-  - message updated
-  - message removed
-  - todo changed
+  - `message_added`
+  - `message_updated`
+  - `message_removed`
+  - `todo_changed`
 - the client merges those deltas into the existing store instead of reloading `limit=200`
 
 This is a natural fit with the existing SSE architecture in `packages/opencode/src/server/routes/global.ts`.
@@ -202,7 +202,7 @@ Land the lowest-risk wins first:
 
 Attack the largest payload directly:
 
-1. add `view=summary` to `GET /session/:id/message`
+1. add `projection=summary` to `GET /session/:id/message`
 2. switch timeline bootstrap and layout prefetch to the summary view
 3. hydrate full message parts on demand for visible or expanded turns
 
