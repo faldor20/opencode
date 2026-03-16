@@ -17,6 +17,7 @@ if (!semver.satisfies(process.versions.bun, expectedBunVersionRange)) {
   throw new Error(`This script requires bun@${expectedBunVersionRange}, but you are using bun@${process.versions.bun}`)
 }
 
+
 const env = {
   OPENCODE_CHANNEL: process.env["OPENCODE_CHANNEL"],
   OPENCODE_BUMP: process.env["OPENCODE_BUMP"],
