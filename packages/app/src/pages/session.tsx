@@ -40,6 +40,8 @@ import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
 import { type FollowupDraft, sendFollowupDraft } from "@/components/prompt-input/submit"
 import { createSessionComposerState, SessionComposerRegion } from "@/pages/session/composer"
+import { createSessionHistoryWindow, shouldAutoFillHistory } from "@/pages/session/history-window"
+import { createDiffDetailsLoader, hasFull, nextDiffDetails, nextDiffLoad } from "@/pages/session/diff-loading"
 import { createOpenReviewFile, createSessionTabs, createSizing, focusTerminalById } from "@/pages/session/helpers"
 import { MessageTimeline } from "@/pages/session/message-timeline"
 import { type DiffStyle, SessionReviewTab, type SessionReviewTabProps } from "@/pages/session/review-tab"
@@ -56,246 +58,6 @@ import { formatServerError } from "@/utils/server-errors"
 
 const emptyUserMessages: UserMessage[] = []
 const emptyFollowups: (FollowupDraft & { id: string })[] = []
-
-type SessionHistoryWindowInput = {
-  sessionID: () => string | undefined
-  messagesReady: () => boolean
-  loaded: () => number
-  visibleUserMessages: () => UserMessage[]
-  historyMore: () => boolean
-  historyLoading: () => boolean
-  loadMore: (sessionID: string) => Promise<void>
-  userScrolled: () => boolean
-  scroller: () => HTMLDivElement | undefined
-}
-
-/**
- * Maintains the rendered history window for a session timeline.
- *
- * It keeps initial paint bounded to recent turns, reveals cached turns in
- * small batches while scrolling upward, and prefetches older history near top.
- */
-function createSessionHistoryWindow(input: SessionHistoryWindowInput) {
-  const turnInit = 10
-  const turnBatch = 8
-  const turnScrollThreshold = 200
-  const turnPrefetchBuffer = 16
-  const prefetchCooldownMs = 400
-  const prefetchNoGrowthLimit = 2
-
-  const [state, setState] = createStore({
-    turnID: undefined as string | undefined,
-    turnStart: 0,
-    prefetchUntil: 0,
-    prefetchNoGrowth: 0,
-  })
-
-  const initialTurnStart = (len: number) => (len > turnInit ? len - turnInit : 0)
-
-  const turnStart = createMemo(() => {
-    const id = input.sessionID()
-    const len = input.visibleUserMessages().length
-    if (!id || len <= 0) return 0
-    if (state.turnID !== id) return initialTurnStart(len)
-    if (state.turnStart <= 0) return 0
-    if (state.turnStart >= len) return initialTurnStart(len)
-    return state.turnStart
-  })
-
-  const setTurnStart = (start: number) => {
-    const id = input.sessionID()
-    const next = start > 0 ? start : 0
-    if (!id) {
-      setState({ turnID: undefined, turnStart: next })
-      return
-    }
-    setState({ turnID: id, turnStart: next })
-  }
-
-  const renderedUserMessages = createMemo(
-    () => {
-      const msgs = input.visibleUserMessages()
-      const start = turnStart()
-      if (start <= 0) return msgs
-      return msgs.slice(start)
-    },
-    emptyUserMessages,
-    {
-      equals: same,
-    },
-  )
-
-  const preserveScroll = (fn: () => void) => {
-    const el = input.scroller()
-    if (!el) {
-      fn()
-      return
-    }
-    const beforeTop = el.scrollTop
-    const beforeHeight = el.scrollHeight
-    fn()
-    requestAnimationFrame(() => {
-      const delta = el.scrollHeight - beforeHeight
-      if (!delta) return
-      el.scrollTop = beforeTop + delta
-    })
-  }
-
-  const backfillTurns = () => {
-    const start = turnStart()
-    if (start <= 0) return
-
-    const next = start - turnBatch
-    const nextStart = next > 0 ? next : 0
-
-    preserveScroll(() => setTurnStart(nextStart))
-  }
-
-  /** Button path: reveal all cached turns, fetch older history, reveal one batch. */
-  const loadAndReveal = async () => {
-    const id = input.sessionID()
-    if (!id) return
-
-    const start = turnStart()
-    const beforeVisible = input.visibleUserMessages().length
-    let loaded = input.loaded()
-
-    if (start > 0) setTurnStart(0)
-
-    if (!input.historyMore() || input.historyLoading()) return
-
-    let afterVisible = beforeVisible
-    let added = 0
-
-    while (true) {
-      await input.loadMore(id)
-      if (input.sessionID() !== id) return
-
-      afterVisible = input.visibleUserMessages().length
-      const nextLoaded = input.loaded()
-      const raw = nextLoaded - loaded
-      added += raw
-      loaded = nextLoaded
-
-      if (afterVisible > beforeVisible) break
-      if (raw <= 0) break
-      if (!input.historyMore()) break
-    }
-
-    if (added <= 0) return
-    if (state.prefetchNoGrowth) setState("prefetchNoGrowth", 0)
-
-    const growth = afterVisible - beforeVisible
-    if (growth <= 0) return
-    if (turnStart() !== 0) return
-
-    const target = Math.min(afterVisible, beforeVisible + turnBatch)
-    setTurnStart(Math.max(0, afterVisible - target))
-  }
-
-  /** Scroll/prefetch path: fetch older history from server. */
-  const fetchOlderMessages = async (opts?: { prefetch?: boolean }) => {
-    const id = input.sessionID()
-    if (!id) return
-    if (!input.historyMore() || input.historyLoading()) return
-
-    if (opts?.prefetch) {
-      const now = Date.now()
-      if (state.prefetchUntil > now) return
-      if (state.prefetchNoGrowth >= prefetchNoGrowthLimit) return
-      setState("prefetchUntil", now + prefetchCooldownMs)
-    }
-
-    const start = turnStart()
-    const beforeVisible = input.visibleUserMessages().length
-    const beforeRendered = start <= 0 ? beforeVisible : renderedUserMessages().length
-    let loaded = input.loaded()
-    let added = 0
-    let growth = 0
-
-    while (true) {
-      await input.loadMore(id)
-      if (input.sessionID() !== id) return
-
-      const nextLoaded = input.loaded()
-      const raw = nextLoaded - loaded
-      added += raw
-      loaded = nextLoaded
-      growth = input.visibleUserMessages().length - beforeVisible
-
-      if (growth > 0) break
-      if (raw <= 0) break
-      if (opts?.prefetch) break
-      if (!input.historyMore()) break
-    }
-
-    const afterVisible = input.visibleUserMessages().length
-
-    if (opts?.prefetch) {
-      setState("prefetchNoGrowth", added > 0 ? 0 : state.prefetchNoGrowth + 1)
-    } else if (added > 0 && state.prefetchNoGrowth) {
-      setState("prefetchNoGrowth", 0)
-    }
-
-    if (added <= 0) return
-    if (growth <= 0) return
-    if (turnStart() !== start) return
-
-    const reveal = !opts?.prefetch
-    const currentRendered = renderedUserMessages().length
-    const base = Math.max(beforeRendered, currentRendered)
-    const target = reveal ? Math.min(afterVisible, base + turnBatch) : base
-    const nextStart = Math.max(0, afterVisible - target)
-    preserveScroll(() => setTurnStart(nextStart))
-  }
-
-  const onScrollerScroll = () => {
-    if (!input.userScrolled()) return
-    const el = input.scroller()
-    if (!el) return
-    if (el.scrollTop >= turnScrollThreshold) return
-
-    const start = turnStart()
-    if (start > 0) {
-      if (start <= turnPrefetchBuffer) {
-        void fetchOlderMessages({ prefetch: true })
-      }
-      backfillTurns()
-      return
-    }
-
-    void fetchOlderMessages()
-  }
-
-  createEffect(
-    on(
-      input.sessionID,
-      () => {
-        setState({ prefetchUntil: 0, prefetchNoGrowth: 0 })
-      },
-      { defer: true },
-    ),
-  )
-
-  createEffect(
-    on(
-      () => [input.sessionID(), input.messagesReady()] as const,
-      ([id, ready]) => {
-        if (!id || !ready) return
-        setTurnStart(initialTurnStart(input.visibleUserMessages().length))
-      },
-      { defer: true },
-    ),
-  )
-
-  return {
-    turnStart,
-    setTurnStart,
-    renderedUserMessages,
-    loadAndReveal,
-    onScrollerScroll,
-  }
-}
 
 export default function Page() {
   const globalSync = useGlobalSync()
@@ -569,14 +331,13 @@ export default function Page() {
     const box = root.getBoundingClientRect()
     const line = box.top + 100
     const list = [...root.querySelectorAll<HTMLElement>("[data-message-id]")]
-      .map((el) => {
+      .flatMap((el) => {
         const id = el.dataset.messageId
-        if (!id) return
+        if (!id) return []
 
         const rect = el.getBoundingClientRect()
-        return { id, top: rect.top, bottom: rect.bottom }
+        return [{ id, top: rect.top, bottom: rect.bottom }]
       })
-      .filter((item): item is { id: string; top: number; bottom: number } => !!item)
 
     const shown = list.filter((item) => item.bottom > box.top && item.top < box.bottom)
     const hit = shown.find((item) => item.top <= line && item.bottom >= line)
@@ -977,6 +738,37 @@ export default function Page() {
     )
   }
 
+  const reviewWanted = () =>
+    isDesktop() ? desktopReviewOpen() && activeTab() === "review" : store.mobileTab === "changes"
+
+  const loadDiffDetails = (open: string[]) => {
+    const id = params.id
+    if (!id) return
+    const list = nextDiffDetails({
+      bandwidthOptimization: settings.general.bandwidthOptimization(),
+      review: reviewWanted(),
+      changes: store.changes,
+      sessionID: id,
+      open,
+      diffs: reviewDiffs(),
+    })
+    for (const file of list) {
+      void sync.session.diffFile(id, file)
+    }
+  }
+
+  createDiffDetailsLoader({
+    bandwidthOptimization: settings.general.bandwidthOptimization,
+    review: reviewWanted,
+    changes: () => store.changes,
+    sessionID: () => params.id,
+    open: () => view().review.open(),
+    diffs: reviewDiffs,
+    load: (id, file) => {
+      void sync.session.diffFile(id, file)
+    },
+  })
+
   const reviewContent = (input: {
     diffStyle: DiffStyle
     onDiffStyleChange?: (style: DiffStyle) => void
@@ -1001,6 +793,9 @@ export default function Page() {
         comments={comments.all()}
         focusedComment={comments.focus()}
         onFocusedCommentChange={comments.setFocus}
+        onOpenChange={(open) => {
+          loadDiffDetails(open)
+        }}
         onViewFile={openReviewFile}
         classes={input.classes}
       />
@@ -1117,14 +912,17 @@ export default function Page() {
     const id = params.id
     if (!id) return
 
-    const wants = isDesktop()
-      ? desktopFileTreeOpen() || (desktopReviewOpen() && activeTab() === "review")
-      : store.mobileTab === "changes"
-    if (!wants) return
-    if (sync.data.session_diff[id] !== undefined) return
-    if (sync.status === "loading") return
+    const wants = isDesktop() ? desktopFileTreeOpen() || reviewWanted() : store.mobileTab === "changes"
+    const next = nextDiffLoad({
+      wants,
+      cached: sync.data.session_diff[id] !== undefined,
+      full: hasFull(sync.data.session_diff[id] ?? []),
+      loading: sync.status === "loading",
+      bandwidthOptimization: settings.general.bandwidthOptimization(),
+    })
+    if (!next) return
 
-    void sync.session.diff(id)
+    void sync.session.diff(id, { full: next === "full" })
   })
 
   createEffect(
@@ -1132,9 +930,7 @@ export default function Page() {
       () =>
         [
           sessionKey(),
-          isDesktop()
-            ? desktopFileTreeOpen() || (desktopReviewOpen() && activeTab() === "review")
-            : store.mobileTab === "changes",
+          isDesktop() ? desktopFileTreeOpen() || reviewWanted() : store.mobileTab === "changes",
         ] as const,
       ([key, wants]) => {
         if (diffFrame !== undefined) cancelAnimationFrame(diffFrame)
@@ -1152,7 +948,10 @@ export default function Page() {
           diffTimer = window.setTimeout(() => {
             diffTimer = undefined
             if (sessionKey() !== key) return
-            void sync.session.diff(id, { force: true })
+            void sync.session.diff(id, {
+              force: true,
+              full: !settings.general.bandwidthOptimization(),
+            })
           }, 0)
         })
       },
@@ -1268,6 +1067,7 @@ export default function Page() {
   )
 
   const historyWindow = createSessionHistoryWindow({
+    bandwidthOptimization: settings.general.bandwidthOptimization,
     sessionID: () => params.id,
     messagesReady,
     loaded: () => messages().length,
@@ -1276,6 +1076,7 @@ export default function Page() {
     historyLoading,
     loadMore: (sessionID) => sync.session.history.loadMore(sessionID),
     userScrolled: autoScroll.userScrolled,
+    hasScrollGesture,
     scroller: () => scroller,
   })
 
@@ -1285,13 +1086,23 @@ export default function Page() {
     fillFrame = requestAnimationFrame(() => {
       fillFrame = undefined
 
-      if (!params.id || !messagesReady()) return
-      if (autoScroll.userScrolled() || historyLoading()) return
-
       const el = scroller
       if (!el) return
-      if (el.scrollHeight > el.clientHeight + 1) return
-      if (historyWindow.turnStart() <= 0 && !historyMore()) return
+      if (
+        !shouldAutoFillHistory({
+          bandwidthOptimization: settings.general.bandwidthOptimization(),
+          sessionID: params.id,
+          messagesReady: messagesReady(),
+          userScrolled: autoScroll.userScrolled(),
+          historyLoading: historyLoading(),
+          historyMore: historyMore(),
+          turnStart: historyWindow.turnStart(),
+          scrollHeight: el.scrollHeight,
+          clientHeight: el.clientHeight,
+        })
+      ) {
+        return
+      }
 
       void historyWindow.loadAndReveal()
     })
@@ -1307,11 +1118,23 @@ export default function Page() {
           historyMore(),
           historyLoading(),
           autoScroll.userScrolled(),
+          settings.general.bandwidthOptimization(),
           visibleUserMessages().length,
         ] as const,
-      ([id, ready, start, more, loading, scrolled]) => {
-        if (!id || !ready || loading || scrolled) return
-        if (start <= 0 && !more) return
+      ([id, ready, start, more, loading, scrolled, bandwidthOptimization]) => {
+        if (
+          !shouldAutoFillHistory({
+            bandwidthOptimization,
+            sessionID: id,
+            messagesReady: ready,
+            userScrolled: scrolled,
+            historyLoading: loading,
+            historyMore: more,
+            turnStart: start,
+          })
+        ) {
+          return
+        }
         fill()
       },
       { defer: true },

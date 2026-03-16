@@ -11,6 +11,27 @@ import { Storage } from "@/storage/storage"
 import { Bus } from "@/bus"
 
 export namespace SessionSummary {
+  function normalize(diffs: Snapshot.FileDiff[]) {
+    const next = diffs.map((item) => {
+      const file = unquoteGitPath(item.file)
+      if (file === item.file) return item
+      return {
+        ...item,
+        file,
+      }
+    })
+    const changed = next.some((item, i) => item.file !== diffs[i]?.file)
+    return { next, changed }
+  }
+
+  function summary(diffs: Snapshot.FileDiff[]) {
+    return {
+      additions: diffs.reduce((sum, x) => sum + x.additions, 0),
+      deletions: diffs.reduce((sum, x) => sum + x.deletions, 0),
+      files: diffs.length,
+    }
+  }
+
   function unquoteGitPath(input: string) {
     if (!input.startsWith('"')) return input
     if (!input.endsWith('"')) return input
@@ -86,9 +107,8 @@ export namespace SessionSummary {
     await Session.setSummary({
       sessionID: input.sessionID,
       summary: {
-        additions: diffs.reduce((sum, x) => sum + x.additions, 0),
-        deletions: diffs.reduce((sum, x) => sum + x.deletions, 0),
-        files: diffs.length,
+        ...summary(diffs),
+        diffs,
       },
     })
     await Storage.write(["session_diff", input.sessionID], diffs)
@@ -116,20 +136,48 @@ export namespace SessionSummary {
     z.object({
       sessionID: SessionID.zod,
       messageID: MessageID.zod.optional(),
+      file: z.string().optional(),
+      full: z.boolean().optional(),
     }),
     async (input) => {
       const diffs = await Storage.read<Snapshot.FileDiff[]>(["session_diff", input.sessionID]).catch(() => [])
-      const next = diffs.map((item) => {
-        const file = unquoteGitPath(item.file)
-        if (file === item.file) return item
-        return {
-          ...item,
-          file,
-        }
-      })
-      const changed = next.some((item, i) => item.file !== diffs[i]?.file)
+      const { next, changed } = normalize(diffs)
       if (changed) Storage.write(["session_diff", input.sessionID], next).catch(() => {})
-      return next
+
+      if (input.file) {
+        const match = next.find((item) => item.file === input.file)
+        if (!match) return []
+        return [match]
+      }
+
+      if (input.full) return next
+
+      return next.map((item) => ({
+        file: item.file,
+        additions: item.additions,
+        deletions: item.deletions,
+        status: item.status,
+      }))
+    },
+  )
+
+  export const diffMeta = fn(
+    z.object({
+      sessionID: SessionID.zod,
+    }),
+    async (input) => {
+      return diff({ sessionID: input.sessionID })
+    },
+  )
+
+  export const diffFile = fn(
+    z.object({
+      sessionID: SessionID.zod,
+      file: z.string(),
+    }),
+    async (input) => {
+      const result = await diff({ sessionID: input.sessionID, file: input.file, full: true })
+      return result[0]
     },
   )
 
@@ -158,5 +206,23 @@ export namespace SessionSummary {
 
     if (from && to) return Snapshot.diffFull(from, to)
     return []
+  }
+
+  export async function refresh(sessionID: SessionID) {
+    const messages = await Session.messages({ sessionID })
+    const diffs = await computeDiff({ messages })
+    await Session.setSummary({
+      sessionID,
+      summary: {
+        ...summary(diffs),
+        diffs,
+      },
+    })
+    await Storage.write(["session_diff", sessionID], diffs)
+    Bus.publish(Session.Event.Diff, {
+      sessionID,
+      diff: diffs,
+    })
+    return diffs
   }
 }

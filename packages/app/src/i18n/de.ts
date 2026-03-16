@@ -590,6 +590,9 @@ export const dict = {
   "settings.general.row.reasoningSummaries.title": "Reasoning-Zusammenfassungen anzeigen",
   "settings.general.row.reasoningSummaries.description":
     "Zusammenfassungen des Modell-Reasonings in der Timeline anzeigen",
+  "settings.general.row.bandwidthOptimization.title": "Bandbreitenoptimierung",
+  "settings.general.row.bandwidthOptimization.description":
+    "Reduziert die Bandbreitennutzung im Hintergrund und für den Verlauf und kann das Laden verzögern, bis es benötigt wird",
   "settings.general.row.shellToolPartsExpanded.title": "Shell-Tool-Abschnitte ausklappen",
   "settings.general.row.shellToolPartsExpanded.description":
     "Shell-Tool-Abschnitte standardmäßig in der Timeline ausgeklappt anzeigen",

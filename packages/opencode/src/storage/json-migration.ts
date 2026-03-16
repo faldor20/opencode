@@ -107,11 +107,12 @@ export namespace JsonMigration {
 
     // Pre-scan all files upfront to avoid repeated glob operations
     log.info("scanning files...")
-    const [projectFiles, sessionFiles, messageFiles, partFiles, todoFiles, permFiles, shareFiles] = await Promise.all([
+    const [projectFiles, sessionFiles, messageFiles, partFiles, diffFiles, todoFiles, permFiles, shareFiles] = await Promise.all([
       list("project/*.json"),
       list("session/*/*.json"),
       list("message/*/*.json"),
       list("part/*/*.json"),
+      list("session_diff/*.json"),
       list("todo/*.json"),
       list("permission/*.json"),
       list("session_share/*.json"),
@@ -122,6 +123,7 @@ export namespace JsonMigration {
       sessions: sessionFiles.length,
       messages: messageFiles.length,
       parts: partFiles.length,
+      diffs: diffFiles.length,
       todos: todoFiles.length,
       permissions: permFiles.length,
       shares: shareFiles.length,
@@ -133,6 +135,7 @@ export namespace JsonMigration {
         sessionFiles.length +
         messageFiles.length +
         partFiles.length +
+        diffFiles.length +
         todoFiles.length +
         permFiles.length +
         shareFiles.length,
@@ -147,6 +150,10 @@ export namespace JsonMigration {
     progress?.({ current, total, label: "starting" })
 
     sqlite.exec("BEGIN TRANSACTION")
+
+    const mset = new Set(messageFiles.map((file) => path.basename(path.dirname(file))))
+    const dset = new Set(diffFiles.map((file) => path.basename(file, ".json")))
+    const tset = new Set(todoFiles.map((file) => path.basename(file, ".json")))
 
     // Migrate projects first (no FK deps)
     // Derive all IDs from file paths, not JSON content
@@ -209,6 +216,12 @@ export namespace JsonMigration {
           title: data.title ?? "",
           version: data.version ?? "",
           share_url: data.share?.url ?? null,
+          message_revision: mset.has(id) ? 1 : 0,
+          todo_revision: tset.has(id) ? 1 : 0,
+          // Legacy storage may keep the live diff payload only in session_diff/*.json,
+          // so seed the revision whenever either summary metadata, revert metadata, or a
+          // stored diff payload exists for the session.
+          diff_revision: data.summary || data.revert || dset.has(id) ? 1 : 0,
           summary_additions: data.summary?.additions ?? null,
           summary_deletions: data.summary?.deletions ?? null,
           summary_files: data.summary?.files ?? null,

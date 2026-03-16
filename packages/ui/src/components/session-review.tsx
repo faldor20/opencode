@@ -96,28 +96,26 @@ function ReviewCommentMenu(props: {
   onDelete: VoidFunction
 }) {
   return (
-    <div onMouseDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
-      <DropdownMenu gutter={4} placement="bottom-end">
-        <DropdownMenu.Trigger
-          as={IconButton}
-          icon="dot-grid"
-          variant="ghost"
-          size="small"
-          class="size-6 rounded-md"
-          aria-label={props.labels.moreLabel}
-        />
-        <DropdownMenu.Portal>
-          <DropdownMenu.Content>
-            <DropdownMenu.Item onSelect={props.onEdit}>
-              <DropdownMenu.ItemLabel>{props.labels.editLabel}</DropdownMenu.ItemLabel>
-            </DropdownMenu.Item>
-            <DropdownMenu.Item onSelect={props.onDelete}>
-              <DropdownMenu.ItemLabel>{props.labels.deleteLabel}</DropdownMenu.ItemLabel>
-            </DropdownMenu.Item>
-          </DropdownMenu.Content>
-        </DropdownMenu.Portal>
-      </DropdownMenu>
-    </div>
+    <DropdownMenu gutter={4} placement="bottom-end">
+      <DropdownMenu.Trigger
+        as={IconButton}
+        icon="dot-grid"
+        variant="ghost"
+        size="small"
+        class="size-6 rounded-md"
+        aria-label={props.labels.moreLabel}
+      />
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content>
+          <DropdownMenu.Item onSelect={props.onEdit}>
+            <DropdownMenu.ItemLabel>{props.labels.editLabel}</DropdownMenu.ItemLabel>
+          </DropdownMenu.Item>
+          <DropdownMenu.Item onSelect={props.onDelete}>
+            <DropdownMenu.ItemLabel>{props.labels.deleteLabel}</DropdownMenu.ItemLabel>
+          </DropdownMenu.Item>
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu>
   )
 }
 
@@ -130,6 +128,10 @@ function diffId(file: string): string | undefined {
 type SessionReviewSelection = {
   file: string
   range: SelectedLineRange
+}
+
+function hasDetails(diff: Pick<FileDiff, "before" | "after"> | undefined) {
+  return typeof diff?.before === "string" && typeof diff.after === "string"
 }
 
 export const SessionReview = (props: SessionReviewProps) => {
@@ -294,8 +296,14 @@ export const SessionReview = (props: SessionReviewProps) => {
                     const comments = createMemo(() => (props.comments ?? []).filter((c) => c.file === file))
                     const commentedLines = createMemo(() => comments().map((c) => c.selection))
 
-                    const beforeText = () => (typeof item().before === "string" ? item().before : "")
-                    const afterText = () => (typeof item().after === "string" ? item().after : "")
+                    const beforeText = () => {
+                      const diff = item()
+                      return typeof diff?.before === "string" ? diff.before : ""
+                    }
+                    const afterText = () => {
+                      const diff = item()
+                      return typeof diff?.after === "string" ? diff.after : ""
+                    }
                     const changedLines = () => item().additions + item().deletions
                     const mediaKind = createMemo(() => mediaKindFromPath(file))
 
@@ -306,10 +314,16 @@ export const SessionReview = (props: SessionReviewProps) => {
                       return changedLines() > MAX_DIFF_CHANGED_LINES
                     })
 
-                    const isAdded = () =>
-                      item().status === "added" || (beforeText().length === 0 && afterText().length > 0)
-                    const isDeleted = () =>
-                      item().status === "deleted" || (afterText().length === 0 && beforeText().length > 0)
+                    const isAdded = () => {
+                      const diff = item()
+                      if (!diff) return false
+                      return diff.status === "added" || (beforeText().length === 0 && afterText().length > 0)
+                    }
+                    const isDeleted = () => {
+                      const diff = item()
+                      if (!diff) return false
+                      return diff.status === "deleted" || (afterText().length === 0 && beforeText().length > 0)
+                    }
 
                     const selectedLines = createMemo(() => {
                       const current = selection()
@@ -466,6 +480,12 @@ export const SessionReview = (props: SessionReviewProps) => {
                           >
                             <Show when={expanded()}>
                               <Switch>
+                                <Match when={!hasDetails(item())}>
+                                  <div data-slot="session-review-loading" class="px-4 py-3 text-12-regular text-text-weak">
+                                    {i18n.t("common.loading")}
+                                    {i18n.t("common.loading.ellipsis")}
+                                  </div>
+                                </Match>
                                 <Match when={tooLarge()}>
                                   <div data-slot="session-review-large-diff">
                                     <div data-slot="session-review-large-diff-title">
@@ -509,11 +529,11 @@ export const SessionReview = (props: SessionReviewProps) => {
                                     commentedLines={commentedLines()}
                                     before={{
                                       name: file,
-                                      contents: typeof item().before === "string" ? item().before : "",
+                                      contents: item().before ?? "",
                                     }}
                                     after={{
                                       name: file,
-                                      contents: typeof item().after === "string" ? item().after : "",
+                                      contents: item().after ?? "",
                                     }}
                                     media={{
                                       mode: "auto",

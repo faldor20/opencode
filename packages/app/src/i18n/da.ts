@@ -638,6 +638,9 @@ export const dict = {
   "settings.general.row.followup.option.steer": "Styr",
   "settings.general.row.reasoningSummaries.title": "Vis tænkeoversigter",
   "settings.general.row.reasoningSummaries.description": "Vis model tænkeoversigter i tidslinjen",
+  "settings.general.row.bandwidthOptimization.title": "Båndbreddeoptimering",
+  "settings.general.row.bandwidthOptimization.description":
+    "Reducerer båndbreddeforbrug i baggrunden og for historik, og kan forsinke indlæsning, indtil det er nødvendigt",
 
   "settings.general.row.shellToolPartsExpanded.title": "Udvid shell-værktøjsdele",
   "settings.general.row.shellToolPartsExpanded.description": "Vis shell-værktøjsdele udvidet som standard i tidslinjen",

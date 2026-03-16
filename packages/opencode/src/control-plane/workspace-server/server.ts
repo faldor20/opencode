@@ -1,4 +1,5 @@
 import { Hono } from "hono"
+import { compress } from "hono/compress"
 import { Instance } from "../../project/instance"
 import { InstanceBootstrap } from "../../project/bootstrap"
 import { SessionRoutes } from "../../server/routes/session"
@@ -20,6 +21,8 @@ export namespace WorkspaceServer {
       .route("/", SessionRoutes())
 
     return new Hono()
+      // Match the main server so regular responses compress while SSE stays untouched.
+      .use(compress())
       .use(async (c, next) => {
         const rawWorkspaceID = c.req.query("workspace") || c.req.header("x-opencode-workspace")
         const raw = c.req.query("directory") || c.req.header("x-opencode-directory")

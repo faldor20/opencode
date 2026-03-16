@@ -571,6 +571,9 @@ export const dict = {
   "settings.general.row.followup.option.steer": "توجيه",
   "settings.general.row.reasoningSummaries.title": "إظهار ملخصات الاستنتاج",
   "settings.general.row.reasoningSummaries.description": "عرض ملخصات استنتاج النموذج في الشريط الزمني",
+  "settings.general.row.bandwidthOptimization.title": "تحسين عرض النطاق",
+  "settings.general.row.bandwidthOptimization.description":
+    "يقلل استخدام عرض النطاق في الخلفية والسجل، وقد يؤخر التحميل إلى أن تصبح الحاجة إليه فعلية",
   "settings.general.row.shellToolPartsExpanded.title": "توسيع أجزاء أداة shell",
   "settings.general.row.shellToolPartsExpanded.description":
     "إظهار أجزاء أداة shell موسعة بشكل افتراضي في الشريط الزمني",

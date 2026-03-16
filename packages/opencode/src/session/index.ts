@@ -9,7 +9,7 @@ import { Config } from "../config/config"
 import { Flag } from "../flag/flag"
 import { Installation } from "../installation"
 
-import { Database, NotFoundError, eq, and, or, gte, isNull, desc, like, inArray, lt } from "../storage/db"
+import { Database, NotFoundError, eq, and, or, gte, isNull, desc, like, inArray, lt, sql } from "../storage/db"
 import type { SQL } from "../storage/db"
 import { SessionTable, MessageTable, PartTable } from "./session.sql"
 import { ProjectTable } from "../project/project.sql"
@@ -107,6 +107,15 @@ export namespace Session {
       time_compacting: info.time.compacting,
       time_archived: info.time.archived,
     }
+  }
+
+  function tick() {
+    const now = Date.now()
+    return sql<number>`case when ${SessionTable.time_updated} >= ${now} then ${SessionTable.time_updated} + 1 else ${now} end`
+  }
+
+  function step(col: typeof SessionTable.message_revision) {
+    return sql<number>`coalesce(${col}, 0) + 1`
   }
 
   function getForkedTitle(title: string): string {
@@ -429,7 +438,7 @@ export namespace Session {
       return Database.use((db) => {
         const row = db
           .update(SessionTable)
-          .set({ permission: input.permission, time_updated: Date.now() })
+          .set({ permission: input.permission, time_updated: tick() })
           .where(eq(SessionTable.id, input.sessionID))
           .returning()
           .get()
@@ -456,7 +465,9 @@ export namespace Session {
             summary_additions: input.summary?.additions,
             summary_deletions: input.summary?.deletions,
             summary_files: input.summary?.files,
-            time_updated: Date.now(),
+            summary_diffs: input.summary?.diffs,
+            diff_revision: step(SessionTable.diff_revision),
+            time_updated: tick(),
           })
           .where(eq(SessionTable.id, input.sessionID))
           .returning()
@@ -473,10 +484,13 @@ export namespace Session {
     return Database.use((db) => {
       const row = db
         .update(SessionTable)
-        .set({
-          revert: null,
-          time_updated: Date.now(),
-        })
+          .set({
+            // Revert cleanup only clears revert state. Diff summary metadata may
+            // already have been rebuilt to match the live session state.
+            revert: null,
+            diff_revision: step(SessionTable.diff_revision),
+            time_updated: tick(),
+          })
         .where(eq(SessionTable.id, sessionID))
         .returning()
         .get()
@@ -500,7 +514,9 @@ export namespace Session {
             summary_additions: input.summary?.additions,
             summary_deletions: input.summary?.deletions,
             summary_files: input.summary?.files,
-            time_updated: Date.now(),
+            summary_diffs: input.summary?.diffs,
+            diff_revision: step(SessionTable.diff_revision),
+            time_updated: tick(),
           })
           .where(eq(SessionTable.id, input.sessionID))
           .returning()
@@ -685,6 +701,7 @@ export namespace Session {
 
   export const updateMessage = fn(MessageV2.Info, async (msg) => {
     const time_created = msg.time.created
+    const time_updated = Date.now()
     const { id, sessionID, ...data } = msg
     Database.use((db) => {
       db.insert(MessageTable)
@@ -692,9 +709,23 @@ export namespace Session {
           id,
           session_id: sessionID,
           time_created,
+          time_updated,
           data,
         })
-        .onConflictDoUpdate({ target: MessageTable.id, set: { data } })
+        .onConflictDoUpdate({
+          target: MessageTable.id,
+          set: {
+            data,
+            time_updated: sql<number>`case when ${MessageTable.time_updated} >= ${time_updated} then ${MessageTable.time_updated} + 1 else ${time_updated} end`,
+          },
+        })
+        .run()
+      db.update(SessionTable)
+        .set({
+          message_revision: step(SessionTable.message_revision),
+          time_updated: tick(),
+        })
+        .where(eq(SessionTable.id, sessionID))
         .run()
       Database.effect(() =>
         Bus.publish(MessageV2.Event.Updated, {
@@ -715,6 +746,13 @@ export namespace Session {
       Database.use((db) => {
         db.delete(MessageTable)
           .where(and(eq(MessageTable.id, input.messageID), eq(MessageTable.session_id, input.sessionID)))
+          .run()
+        db.update(SessionTable)
+          .set({
+            message_revision: step(SessionTable.message_revision),
+            time_updated: tick(),
+          })
+          .where(eq(SessionTable.id, input.sessionID))
           .run()
         Database.effect(() =>
           Bus.publish(MessageV2.Event.Removed, {
@@ -737,6 +775,13 @@ export namespace Session {
       Database.use((db) => {
         db.delete(PartTable)
           .where(and(eq(PartTable.id, input.partID), eq(PartTable.session_id, input.sessionID)))
+          .run()
+        db.update(SessionTable)
+          .set({
+            message_revision: step(SessionTable.message_revision),
+            time_updated: tick(),
+          })
+          .where(eq(SessionTable.id, input.sessionID))
           .run()
         Database.effect(() =>
           Bus.publish(MessageV2.Event.PartRemoved, {
@@ -762,9 +807,23 @@ export namespace Session {
           message_id: messageID,
           session_id: sessionID,
           time_created: time,
+          time_updated: time,
           data,
         })
-        .onConflictDoUpdate({ target: PartTable.id, set: { data } })
+        .onConflictDoUpdate({
+          target: PartTable.id,
+          set: {
+            data,
+            time_updated: sql<number>`case when ${PartTable.time_updated} >= ${time} then ${PartTable.time_updated} + 1 else ${time} end`,
+          },
+        })
+        .run()
+      db.update(SessionTable)
+        .set({
+          message_revision: step(SessionTable.message_revision),
+          time_updated: tick(),
+        })
+        .where(eq(SessionTable.id, sessionID))
         .run()
       Database.effect(() =>
         Bus.publish(MessageV2.Event.PartUpdated, {

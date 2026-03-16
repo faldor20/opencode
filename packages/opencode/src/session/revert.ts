@@ -14,6 +14,12 @@ import { SessionSummary } from "./summary"
 export namespace SessionRevert {
   const log = Log.create({ service: "session.revert" })
 
+  async function reset(sessionID: SessionID) {
+    const diffs = await SessionSummary.refresh(sessionID)
+    await Session.clearRevert(sessionID)
+    return diffs
+  }
+
   export const RevertInput = z.object({
     sessionID: SessionID.zod,
     messageID: MessageID.zod,
@@ -73,6 +79,7 @@ export namespace SessionRevert {
           additions: diffs.reduce((sum, x) => sum + x.additions, 0),
           deletions: diffs.reduce((sum, x) => sum + x.deletions, 0),
           files: diffs.length,
+          diffs,
         },
       })
     }
@@ -85,7 +92,8 @@ export namespace SessionRevert {
     const session = await Session.get(input.sessionID)
     if (!session.revert) return session
     if (session.revert.snapshot) await Snapshot.restore(session.revert.snapshot)
-    return Session.clearRevert(input.sessionID)
+    await reset(input.sessionID)
+    return Session.get(input.sessionID)
   }
 
   export async function cleanup(session: Session.Info) {
@@ -133,6 +141,6 @@ export namespace SessionRevert {
         }
       }
     }
-    await Session.clearRevert(sessionID)
+    await reset(sessionID)
   }
 }

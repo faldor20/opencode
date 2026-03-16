@@ -3,6 +3,7 @@ import { Bus } from "@/bus"
 import { Log } from "../util/log"
 import { describeRoute, generateSpecs, validator, resolver, openAPIRouteHandler } from "hono-openapi"
 import { Hono } from "hono"
+import { compress } from "hono/compress"
 import { cors } from "hono/cors"
 import { streamSSE } from "hono/streaming"
 import { proxy } from "hono/proxy"
@@ -127,6 +128,8 @@ export namespace Server {
           },
         }),
       )
+      // Keep compression always on for regular responses while Hono skips SSE content types.
+      .use(compress())
       .route("/global", GlobalRoutes())
       .put(
         "/auth/:providerID",

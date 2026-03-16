@@ -644,6 +644,9 @@ export const dict = {
   "settings.general.row.followup.option.steer": "Направлять",
   "settings.general.row.reasoningSummaries.title": "Показывать сводки рассуждений",
   "settings.general.row.reasoningSummaries.description": "Отображать сводки рассуждений модели в ленте",
+  "settings.general.row.bandwidthOptimization.title": "Оптимизация пропускной способности",
+  "settings.general.row.bandwidthOptimization.description":
+    "Снижает использование пропускной способности в фоне и для истории и может откладывать загрузку до момента, когда она понадобится",
 
   "settings.general.row.shellToolPartsExpanded.title": "Разворачивать элементы инструмента shell",
   "settings.general.row.shellToolPartsExpanded.description":

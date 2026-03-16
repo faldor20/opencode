@@ -208,8 +208,8 @@ export type OutputFormat = OutputFormatText | OutputFormatJsonSchema
 
 export type FileDiff = {
   file: string
-  before: string
-  after: string
+  before?: string
+  after?: string
   additions: number
   deletions: number
   status?: "added" | "deleted" | "modified"
@@ -1715,6 +1715,13 @@ export type McpResource = {
   client: string
 }
 
+export type SessionValidity = {
+  message: string
+  todo: string
+  diff: string
+  status: string
+}
+
 export type TextPartInput = {
   id?: string
   type: "text"
@@ -3001,6 +3008,40 @@ export type SessionTodoResponses = {
 
 export type SessionTodoResponse = SessionTodoResponses[keyof SessionTodoResponses]
 
+export type SessionValidityData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/validity"
+}
+
+export type SessionValidityErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionValidityError = SessionValidityErrors[keyof SessionValidityErrors]
+
+export type SessionValidityResponses = {
+  /**
+   * Section validity markers
+   */
+  200: SessionValidity
+}
+
+export type SessionValidityResponse = SessionValidityResponses[keyof SessionValidityResponses]
+
 export type SessionInitData = {
   body?: {
     modelID: string
@@ -3173,6 +3214,8 @@ export type SessionDiffData = {
     directory?: string
     workspace?: string
     messageID?: string
+    file?: string
+    full?: boolean
   }
   url: "/session/{sessionID}/diff"
 }

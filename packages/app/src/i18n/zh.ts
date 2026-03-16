@@ -637,6 +637,8 @@ export const dict = {
   "settings.general.row.followup.option.steer": "引导",
   "settings.general.row.reasoningSummaries.title": "显示推理摘要",
   "settings.general.row.reasoningSummaries.description": "在时间线中显示模型推理摘要",
+  "settings.general.row.bandwidthOptimization.title": "带宽优化",
+  "settings.general.row.bandwidthOptimization.description": "减少后台和历史记录的带宽使用，可能会延迟加载直到需要时再进行",
   "settings.general.row.shellToolPartsExpanded.title": "展开 shell 工具部分",
   "settings.general.row.shellToolPartsExpanded.description": "默认在时间线中展开 shell 工具部分",
   "settings.general.row.editToolPartsExpanded.title": "展开编辑工具部分",

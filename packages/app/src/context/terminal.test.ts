@@ -4,17 +4,27 @@ let getWorkspaceTerminalCacheKey: (dir: string) => string
 let getLegacyTerminalStorageKeys: (dir: string, legacySessionID?: string) => string[]
 let migrateTerminalState: (value: unknown) => unknown
 
+// Keep this mock compatible with other context tests so mixed runs do not
+// replace the helper with a stub that breaks unrelated providers.
+mock.module("@opencode-ai/ui/context", () => ({
+  createSimpleContext: (input: { init?: (props: Record<string, unknown>) => unknown }) => {
+    let value: unknown
+    return {
+      provider: (props: Record<string, unknown>) => {
+        value = input.init?.(props)
+        return props.children
+      },
+      use: () => value,
+    }
+  },
+}))
+
+mock.module("@solidjs/router", () => ({
+  useNavigate: () => () => undefined,
+  useParams: () => ({}),
+}))
+
 beforeAll(async () => {
-  mock.module("@solidjs/router", () => ({
-    useNavigate: () => () => undefined,
-    useParams: () => ({}),
-  }))
-  mock.module("@opencode-ai/ui/context", () => ({
-    createSimpleContext: () => ({
-      use: () => undefined,
-      provider: () => undefined,
-    }),
-  }))
   const mod = await import("./terminal")
   getWorkspaceTerminalCacheKey = mod.getWorkspaceTerminalCacheKey
   getLegacyTerminalStorageKeys = mod.getLegacyTerminalStorageKeys

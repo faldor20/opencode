@@ -21,6 +21,20 @@ export function shouldSkipSessionPrefetch(input: { message: boolean; info?: Meta
   return (input.now ?? Date.now()) - input.info.at < SESSION_PREFETCH_TTL
 }
 
+/**
+ * Reduce background history loading when bandwidth optimization is enabled.
+ * High-priority and active sessions still prefetch so navigation stays warm.
+ */
+export function shouldReduceSessionPrefetch(input: {
+  optimize: boolean
+  active: boolean
+  priority: "high" | "low"
+}) {
+  if (!input.optimize) return false
+  if (input.active) return false
+  return input.priority === "low"
+}
+
 const cache = new Map<string, Meta>()
 const inflight = new Map<string, Promise<Meta | undefined>>()
 const rev = new Map<string, number>()

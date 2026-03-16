@@ -648,6 +648,9 @@ export const dict = {
   "settings.general.row.reasoningSummaries.title": "Mostrar resúmenes de razonamiento",
   "settings.general.row.reasoningSummaries.description":
     "Mostrar resúmenes del razonamiento del modelo en la línea de tiempo",
+  "settings.general.row.bandwidthOptimization.title": "Optimización de ancho de banda",
+  "settings.general.row.bandwidthOptimization.description":
+    "Reduce el uso de ancho de banda en segundo plano y del historial, y puede retrasar la carga hasta que sea necesaria",
   "settings.general.row.shellToolPartsExpanded.title": "Expandir partes de la herramienta shell",
   "settings.general.row.shellToolPartsExpanded.description":
     "Mostrar las partes de la herramienta shell expandidas por defecto en la línea de tiempo",

@@ -209,6 +209,18 @@ export const SettingsGeneral: Component = () => {
         </SettingsRow>
 
         <SettingsRow
+          title={language.t("settings.general.row.bandwidthOptimization.title")}
+          description={language.t("settings.general.row.bandwidthOptimization.description")}
+        >
+          <div data-action="settings-feed-bandwidth-optimization">
+            <Switch
+              checked={settings.general.bandwidthOptimization()}
+              onChange={(checked) => settings.general.setBandwidthOptimization(checked)}
+            />
+          </div>
+        </SettingsRow>
+
+        <SettingsRow
           title={language.t("settings.general.row.shellToolPartsExpanded.title")}
           description={language.t("settings.general.row.shellToolPartsExpanded.description")}
         >

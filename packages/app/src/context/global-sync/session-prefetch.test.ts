@@ -5,6 +5,7 @@ import {
   getSessionPrefetch,
   runSessionPrefetch,
   setSessionPrefetch,
+  shouldReduceSessionPrefetch,
   shouldSkipSessionPrefetch,
 } from "./session-prefetch"
 
@@ -92,5 +93,41 @@ describe("session prefetch", () => {
         now: 1 + 15_001,
       }),
     ).toBe(true)
+  })
+
+  test("keeps inactive full-message prefetch when optimization is off", () => {
+    expect(
+      shouldReduceSessionPrefetch({
+        optimize: false,
+        active: false,
+        priority: "low",
+      }),
+    ).toBe(false)
+  })
+
+  test("skips inactive full-message prefetch when optimization is on", () => {
+    expect(
+      shouldReduceSessionPrefetch({
+        optimize: true,
+        active: false,
+        priority: "low",
+      }),
+    ).toBe(true)
+
+    expect(
+      shouldReduceSessionPrefetch({
+        optimize: true,
+        active: true,
+        priority: "low",
+      }),
+    ).toBe(false)
+
+    expect(
+      shouldReduceSessionPrefetch({
+        optimize: true,
+        active: false,
+        priority: "high",
+      }),
+    ).toBe(false)
   })
 })

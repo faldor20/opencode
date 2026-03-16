@@ -21,6 +21,7 @@ export interface SoundSettings {
 export interface Settings {
   general: {
     autoSave: boolean
+    bandwidthOptimization: boolean
     releaseNotes: boolean
     followup: "queue" | "steer"
     showReasoningSummaries: boolean
@@ -45,6 +46,7 @@ export interface Settings {
 const defaultSettings: Settings = {
   general: {
     autoSave: true,
+    bandwidthOptimization: false,
     releaseNotes: true,
     followup: "steer",
     showReasoningSummaries: false,
@@ -123,6 +125,13 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         autoSave: withFallback(() => store.general?.autoSave, defaultSettings.general.autoSave),
         setAutoSave(value: boolean) {
           setStore("general", "autoSave", value)
+        },
+        bandwidthOptimization: withFallback(
+          () => store.general?.bandwidthOptimization,
+          defaultSettings.general.bandwidthOptimization,
+        ),
+        setBandwidthOptimization(value: boolean) {
+          setStore("general", "bandwidthOptimization", value)
         },
         releaseNotes: withFallback(() => store.general?.releaseNotes, defaultSettings.general.releaseNotes),
         setReleaseNotes(value: boolean) {

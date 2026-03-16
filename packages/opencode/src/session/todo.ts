@@ -2,8 +2,8 @@ import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
 import { SessionID } from "./schema"
 import z from "zod"
-import { Database, eq, asc } from "../storage/db"
-import { TodoTable } from "./session.sql"
+import { Database, eq, asc, sql } from "../storage/db"
+import { SessionTable, TodoTable } from "./session.sql"
 
 export namespace Todo {
   export const Info = z
@@ -28,17 +28,25 @@ export namespace Todo {
   export function update(input: { sessionID: SessionID; todos: Info[] }) {
     Database.transaction((db) => {
       db.delete(TodoTable).where(eq(TodoTable.session_id, input.sessionID)).run()
-      if (input.todos.length === 0) return
-      db.insert(TodoTable)
-        .values(
-          input.todos.map((todo, position) => ({
-            session_id: input.sessionID,
-            content: todo.content,
-            status: todo.status,
-            priority: todo.priority,
-            position,
-          })),
-        )
+      if (input.todos.length > 0) {
+        db.insert(TodoTable)
+          .values(
+            input.todos.map((todo, position) => ({
+              session_id: input.sessionID,
+              content: todo.content,
+              status: todo.status,
+              priority: todo.priority,
+              position,
+            })),
+          )
+          .run()
+      }
+      db.update(SessionTable)
+        .set({
+          todo_revision: sql<number>`coalesce(${SessionTable.todo_revision}, 0) + 1`,
+          time_updated: sql<number>`case when ${SessionTable.time_updated} >= ${Date.now()} then ${SessionTable.time_updated} + 1 else ${Date.now()} end`,
+        })
+        .where(eq(SessionTable.id, input.sessionID))
         .run()
     })
     Bus.publish(Event.Updated, input)

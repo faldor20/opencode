@@ -49,7 +49,10 @@ function cleanupSessionCaches(
   setSessionTodo?.(sessionID, undefined)
   setStore(
     produce((draft) => {
+      // Session removal must drop validity too so later revisits cannot trust
+      // markers for payloads that were already evicted from the local cache.
       dropSessionCaches(draft, [sessionID])
+      delete draft.validity[sessionID]
     }),
   )
 }
@@ -68,6 +71,7 @@ export function cleanupDroppedSessionCaches(
     ...Object.keys(store.permission),
     ...Object.keys(store.question),
     ...Object.keys(store.session_status),
+    ...Object.keys(store.validity),
     ...Object.values(store.part)
       .map((parts) => parts?.find((part) => !!part?.sessionID)?.sessionID)
       .filter((sessionID): sessionID is string => !!sessionID),
@@ -78,7 +82,12 @@ export function cleanupDroppedSessionCaches(
   }
   setStore(
     produce((draft) => {
+      // Trimmed sessions should lose both payloads and their validity markers so a
+      // future switch cannot resurrect cache state that no longer exists locally.
       dropSessionCaches(draft, stale)
+      stale.forEach((sessionID) => {
+        delete draft.validity[sessionID]
+      })
     }),
   )
 }

@@ -576,6 +576,9 @@ export const dict = {
   "settings.general.row.followup.option.steer": "조종",
   "settings.general.row.reasoningSummaries.title": "추론 요약 표시",
   "settings.general.row.reasoningSummaries.description": "타임라인에 모델 추론 요약 표시",
+  "settings.general.row.bandwidthOptimization.title": "대역폭 최적화",
+  "settings.general.row.bandwidthOptimization.description":
+    "백그라운드와 기록에 쓰는 대역폭을 줄이며, 필요할 때까지 로딩이 지연될 수 있습니다",
   "settings.general.row.shellToolPartsExpanded.title": "shell 도구 파트 펼치기",
   "settings.general.row.shellToolPartsExpanded.description":
     "타임라인에서 기본적으로 shell 도구 파트를 펼친 상태로 표시합니다",

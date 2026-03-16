@@ -99,4 +99,33 @@ describe("app session cache", () => {
     expect(stale).toEqual(["ses_2", "ses_3"])
     expect([...seen]).toEqual(["ses_1", "ses_4"])
   })
+
+  test("pickSessionCacheEvictions keeps very recently reused sessions under pressure", () => {
+    const seen = new Set(["ses_1", "ses_2"])
+
+    expect(
+      pickSessionCacheEvictions({
+        seen,
+        keep: "ses_1",
+        limit: 2,
+      }),
+    ).toEqual([])
+
+    expect(
+      pickSessionCacheEvictions({
+        seen,
+        keep: "ses_3",
+        limit: 2,
+      }),
+    ).toEqual(["ses_2"])
+
+    expect(
+      pickSessionCacheEvictions({
+        seen,
+        keep: "ses_4",
+        limit: 2,
+      }),
+    ).toEqual(["ses_3"])
+    expect([...seen]).toEqual(["ses_1", "ses_4"])
+  })
 })

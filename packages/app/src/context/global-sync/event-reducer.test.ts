@@ -81,6 +81,7 @@ const baseState = (input: Partial<State> = {}) =>
     limit: 10,
     message: {},
     part: {},
+    validity: {},
     ...input,
   }) as State
 
@@ -304,6 +305,26 @@ describe("applyDirectoryEvent", () => {
     expect(store.part.msg_1).toBeUndefined()
   })
 
+  test("cleanupDroppedSessionCaches also clears validity markers for dropped sessions", () => {
+    const [store, setStore] = createStore(
+      baseState({
+        session: [rootSession({ id: "ses_keep" })],
+        validity: {
+          ses_drop: {
+            message: "a:message",
+            todo: "a:todo",
+            diff: "a:diff",
+            status: "a:status",
+          },
+        },
+      }),
+    )
+
+    cleanupDroppedSessionCaches(store, setStore, store.session)
+
+    expect(store.validity.ses_drop).toBeUndefined()
+  })
+
   test("upserts and removes messages while clearing orphaned parts", () => {
     const sessionID = "ses_1"
     const [store, setStore] = createStore(
@@ -354,6 +375,70 @@ describe("applyDirectoryEvent", () => {
 
     expect(store.message[sessionID]?.map((x) => x.id)).toEqual(["msg_1", "msg_3"])
     expect(store.part.msg_2).toBeUndefined()
+  })
+
+  test("keeps cached session sections fresh through diff todo and status events", () => {
+    const sessionID = "ses_1"
+    const todos: string[] = []
+    const [store, setStore] = createStore(
+      baseState({
+        session_diff: { [sessionID]: [{ file: "a.ts", additions: 1, deletions: 0, status: "modified" }] },
+        todo: { [sessionID]: [{ content: "todo:old", status: "pending", priority: "high" }] },
+        session_status: { [sessionID]: { type: "idle" } },
+      }),
+    )
+
+    applyDirectoryEvent({
+      event: {
+        type: "session.diff",
+        properties: {
+          sessionID,
+          diff: [{ file: "b.ts", additions: 2, deletions: 1, status: "modified" }],
+        },
+      },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+    })
+    applyDirectoryEvent({
+      event: {
+        type: "todo.updated",
+        properties: {
+          sessionID,
+          todos: [{ content: "todo:new", status: "done", priority: "low" }],
+        },
+      },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+      setSessionTodo(id, value) {
+        if (!value) return
+        todos.push(`${id}:${value[0]?.content}`)
+      },
+    })
+    applyDirectoryEvent({
+      event: {
+        type: "session.status",
+        properties: {
+          sessionID,
+          status: { type: "busy" },
+        },
+      },
+      store,
+      setStore,
+      push() {},
+      directory: "/tmp",
+      loadLsp() {},
+    })
+
+    expect(store.session_diff[sessionID]).toEqual([{ file: "b.ts", additions: 2, deletions: 1, status: "modified" }])
+    expect(store.todo[sessionID]).toEqual([{ content: "todo:new", status: "done", priority: "low" }])
+    expect(store.session_status[sessionID]).toEqual({ type: "busy" })
+    expect(todos).toEqual(["ses_1:todo:new"])
   })
 
   test("upserts and prunes message parts", () => {

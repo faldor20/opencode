@@ -42,6 +42,7 @@ import {
   isSessionPrefetchCurrent,
   runSessionPrefetch,
   setSessionPrefetch,
+  shouldReduceSessionPrefetch,
   shouldSkipSessionPrefetch,
 } from "@/context/global-sync/session-prefetch"
 import { useNotification } from "@/context/notification"
@@ -852,6 +853,15 @@ export default function Layout(props: ParentProps) {
   const prefetchSession = (session: Session, priority: "high" | "low" = "low") => {
     const directory = session.directory
     if (!directory) return
+    if (
+      shouldReduceSessionPrefetch({
+        optimize: settings.general.bandwidthOptimization(),
+        active: directory === currentDir() && session.id === params.id,
+        priority,
+      })
+    ) {
+      return
+    }
 
     const [store] = globalSync.child(directory, { bootstrap: false })
     const cached = untrack(() => {

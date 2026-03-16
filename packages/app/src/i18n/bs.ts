@@ -643,6 +643,9 @@ export const dict = {
   "settings.general.row.followup.option.steer": "Usmjeri",
   "settings.general.row.reasoningSummaries.title": "Prikaži sažetke rasuđivanja",
   "settings.general.row.reasoningSummaries.description": "Prikaži sažetke rasuđivanja modela na vremenskoj traci",
+  "settings.general.row.bandwidthOptimization.title": "Optimizacija propusnog opsega",
+  "settings.general.row.bandwidthOptimization.description":
+    "Smanjuje korištenje propusnog opsega za pozadinske radnje i historiju, a učitavanje može odgoditi dok ne bude potrebno",
 
   "settings.general.row.shellToolPartsExpanded.title": "Proširi dijelove shell alata",
   "settings.general.row.shellToolPartsExpanded.description":

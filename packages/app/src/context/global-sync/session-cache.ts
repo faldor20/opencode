@@ -10,6 +10,10 @@ import type {
 
 export const SESSION_CACHE_LIMIT = 40
 
+// Track sessions that were reused recently so one normal eviction pass does not
+// immediately drop them the next time a new session enters the cache.
+const warm = new WeakMap<Set<string>, Set<string>>()
+
 type SessionCache = {
   session_status: Record<string, SessionStatus | undefined>
   session_diff: Record<string, FileDiff[] | undefined>
@@ -47,16 +51,43 @@ export function pickSessionCacheEvictions(input: {
   preserve?: Iterable<string>
 }) {
   const stale: string[] = []
+  const skip = new Set<string>()
   const keep = new Set([input.keep, ...Array.from(input.preserve ?? [])])
-  if (input.seen.has(input.keep)) input.seen.delete(input.keep)
+  const mark = warm.get(input.seen) ?? new Set<string>()
+  warm.set(input.seen, mark)
+
+  if (input.seen.has(input.keep)) {
+    input.seen.delete(input.keep)
+    mark.add(input.keep)
+  }
   input.seen.add(input.keep)
+
+  // First prefer evicting older cold sessions. Warm entries only get one extra
+  // chance, and only when enough colder entries exist to stay within the limit.
   for (const id of input.seen) {
     if (input.seen.size - stale.length <= input.limit) break
     if (keep.has(id)) continue
+    if (mark.has(id)) {
+      skip.add(id)
+      continue
+    }
     stale.push(id)
   }
+
+  // If warm entries are the only remaining candidates, evict them now so the
+  // cache still stays bounded under sustained churn.
+  for (const id of input.seen) {
+    if (input.seen.size - stale.length <= input.limit) break
+    if (keep.has(id) || stale.includes(id)) continue
+    stale.push(id)
+  }
+
   for (const id of stale) {
     input.seen.delete(id)
+    mark.delete(id)
+  }
+  for (const id of skip) {
+    mark.delete(id)
   }
   return stale
 }

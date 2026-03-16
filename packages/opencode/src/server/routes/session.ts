@@ -19,8 +19,56 @@ import { PermissionID } from "@/permission/schema"
 import { ModelID, ProviderID } from "@/provider/schema"
 import { errors } from "../error"
 import { lazy } from "../../util/lazy"
+import { Database, NotFoundError, eq } from "@/storage/db"
+import { SessionTable } from "@/session/session.sql"
+import { Hash } from "@/util/hash"
 
 const log = Log.create({ service: "server" })
+
+const SessionValidity = z
+  .object({
+    message: z.string(),
+    todo: z.string(),
+    diff: z.string(),
+    status: z.string(),
+  })
+  .meta({ ref: "SessionValidity" })
+
+function marker(...parts: Array<string | number | undefined>) {
+  return parts.map((part) => part ?? "").join(":")
+}
+
+function statusMarker(sessionID: SessionID) {
+  const status = SessionStatus.get(sessionID)
+  if (status.type === "idle") return "idle"
+  if (status.type === "busy") return "busy"
+  return marker(status.type, status.attempt, status.next, Hash.fast(status.message))
+}
+
+// These markers stay metadata-only so the client can cheaply decide
+// which cached sections are still trustworthy.
+async function validity(sessionID: SessionID) {
+  const session = await Promise.resolve(
+    Database.use((db) =>
+      db
+        .select({
+          message_revision: SessionTable.message_revision,
+          todo_revision: SessionTable.todo_revision,
+          diff_revision: SessionTable.diff_revision,
+        })
+        .from(SessionTable)
+        .where(eq(SessionTable.id, sessionID))
+        .get(),
+    ),
+  )
+  if (!session) throw new NotFoundError({ message: `Session not found: ${sessionID}` })
+  return {
+    message: marker(session.message_revision),
+    todo: marker(session.todo_revision),
+    diff: marker(session.diff_revision),
+    status: statusMarker(sessionID),
+  }
+}
 
 export const SessionRoutes = lazy(() =>
   new Hono()
@@ -183,6 +231,35 @@ export const SessionRoutes = lazy(() =>
         const sessionID = c.req.valid("param").sessionID
         const todos = await Todo.get(sessionID)
         return c.json(todos)
+      },
+    )
+    .get(
+      "/:sessionID/validity",
+      describeRoute({
+        summary: "Get session validity markers",
+        description: "Retrieve lightweight revision markers for cached session sections.",
+        operationId: "session.validity",
+        responses: {
+          200: {
+            description: "Section validity markers",
+            content: {
+              "application/json": {
+                schema: resolver(SessionValidity),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: SessionID.zod,
+        }),
+      ),
+      async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        return c.json(await validity(sessionID))
       },
     )
     .post(
@@ -441,6 +518,8 @@ export const SessionRoutes = lazy(() =>
         "query",
         z.object({
           messageID: SessionSummary.diff.schema.shape.messageID,
+          file: SessionSummary.diff.schema.shape.file,
+          full: z.coerce.boolean().optional(),
         }),
       ),
       async (c) => {
@@ -449,6 +528,8 @@ export const SessionRoutes = lazy(() =>
         const result = await SessionSummary.diff({
           sessionID: params.sessionID,
           messageID: query.messageID,
+          file: query.file,
+          full: query.full,
         })
         return c.json(result)
       },

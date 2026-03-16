@@ -11,14 +11,16 @@ import {
 } from "./global-sync/session-prefetch"
 import { useGlobalSync } from "./global-sync"
 import { useSDK } from "./sdk"
-import type { Message, Part } from "@opencode-ai/sdk/v2/client"
+import { useSettings } from "./settings"
+import type { Message, Part, SessionValidity } from "@opencode-ai/sdk/v2/client"
 import { SESSION_CACHE_LIMIT, dropSessionCaches, pickSessionCacheEvictions } from "./global-sync/session-cache"
+import { hasDetails, hasFull } from "@/pages/session/diff-loading"
 
 function sortParts(parts: Part[]) {
   return parts.filter((part) => !!part?.id).sort((a, b) => cmp(a.id, b.id))
 }
 
-function runInflight(map: Map<string, Promise<void>>, key: string, task: () => Promise<void>) {
+function runInflight<T>(map: Map<string, Promise<T>>, key: string, task: () => Promise<T>) {
   const pending = map.get(key)
   if (pending) return pending
   const promise = task().finally(() => {
@@ -36,6 +38,76 @@ function merge<T extends { id: string }>(a: readonly T[], b: readonly T[]) {
   const map = new Map(a.map((item) => [item.id, item] as const))
   for (const item of b) map.set(item.id, item)
   return [...map.values()].sort((x, y) => cmp(x.id, y.id))
+}
+
+type ValidityPlan = {
+  message: boolean
+  todo: boolean
+  diff: boolean
+  status: boolean
+}
+
+type ValidityKey = keyof SessionValidity
+
+export function sameValidity(input: { cached: boolean; local?: string; remote?: string }) {
+  if (!input.cached) return false
+  if (!input.local) return false
+  if (!input.remote) return false
+  return input.local === input.remote
+}
+
+export function shouldReuseSession(input: {
+  cached: boolean
+  hasSession: boolean
+  local?: SessionValidity
+  remote?: SessionValidity
+}) {
+  if (!input.cached) return false
+  if (!input.hasSession) return false
+  if (!input.local) return false
+  if (!input.remote) return false
+  return (
+    input.local.message === input.remote.message &&
+    input.local.todo === input.remote.todo &&
+    input.local.diff === input.remote.diff &&
+    input.local.status === input.remote.status
+  )
+}
+
+export function nextValidity(input: {
+  local?: SessionValidity
+  remote: SessionValidity
+  ok: Record<string, boolean>
+}) {
+  return {
+    message: input.ok.message ? input.remote.message : input.local?.message ?? "",
+    todo: input.ok.todo ? input.remote.todo : input.local?.todo ?? "",
+    diff: input.ok.diff ? input.remote.diff : input.local?.diff ?? "",
+    status: input.ok.status ? input.remote.status : input.local?.status ?? "",
+  }
+}
+
+function blankValidity(): SessionValidity {
+  return {
+    message: "",
+    todo: "",
+    diff: "",
+    status: "",
+  }
+}
+
+export function planValidity(input: {
+  cached: ValidityPlan
+  local?: SessionValidity
+  remote?: SessionValidity
+}) {
+  if (!input.remote || !input.local) return input.cached
+  return {
+    message: input.cached.message && input.local.message !== input.remote.message,
+    todo: input.cached.todo && input.local.todo !== input.remote.todo,
+    diff: input.cached.diff && input.local.diff !== input.remote.diff,
+    status: input.cached.status && input.local.status !== input.remote.status,
+  }
 }
 
 type OptimisticStore = {
@@ -168,6 +240,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
   init: () => {
     const globalSync = useGlobalSync()
     const sdk = useSDK()
+    const settings = useSettings()
 
     type Child = ReturnType<(typeof globalSync)["child"]>
     type Setter = Child[1]
@@ -180,8 +253,8 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
     const absolute = (path: string) => (current()[0].path.directory + "/" + path).replace("//", "/")
     const messagePageSize = 200
     const inflight = new Map<string, Promise<void>>()
-    const inflightDiff = new Map<string, Promise<void>>()
-    const inflightTodo = new Map<string, Promise<void>>()
+    const inflightDiff = new Map<string, Promise<boolean | undefined>>()
+    const inflightTodo = new Map<string, Promise<boolean | undefined>>()
     const optimistic = new Map<string, Map<string, OptimisticItem>>()
     const maxDirs = 30
     const seen = new Map<string, Set<string>>()
@@ -191,6 +264,24 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       complete: {} as Record<string, boolean>,
       loading: {} as Record<string, boolean>,
     })
+
+    const validity = (sessionID: string) => {
+      return retry(() => sdk.client.session.validity({ sessionID })).then((res) => res.data!)
+    }
+
+    const clearValidity = (setStore: Setter, directory: string, sessionID: string, key?: ValidityKey) => {
+      if (!tracked(directory, sessionID)) return
+      if (!key) {
+        setStore("validity", sessionID, blankValidity())
+        return
+      }
+      const value = target(directory)[0].validity[sessionID]
+      setStore("validity", sessionID, {
+        ...blankValidity(),
+        ...value,
+        [key]: "",
+      })
+    }
 
     const getSession = (sessionID: string) => {
       const store = current()[0]
@@ -262,6 +353,14 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           }
         }),
       )
+      const [, setStore] = globalSync.child(directory, { bootstrap: false })
+      setStore(
+        produce((draft) => {
+          for (const sessionID of sessionIDs) {
+            delete draft.validity[sessionID]
+          }
+        }),
+      )
     }
 
     const evict = (directory: string, setStore: Setter, sessionIDs: string[]) => {
@@ -308,6 +407,86 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       }
     }
 
+    const loadStatus = async (input: {
+      directory: string
+      client: typeof sdk.client
+      setStore: Setter
+      sessionID: string
+      rev?: string
+    }) => {
+      const result = await retry(() => input.client.session.status())
+      if (!tracked(input.directory, input.sessionID)) return false
+      input.setStore("session_status", input.sessionID, result.data?.[input.sessionID] ?? { type: "idle" })
+      return !!input.rev
+    }
+
+    const loadDiff = async (input: {
+      directory: string
+      client: typeof sdk.client
+      setStore: Setter
+      sessionID: string
+      rev?: string
+      file?: string
+      full?: boolean
+    }) => {
+      const key = [keyFor(input.directory, input.sessionID), input.file ?? "", input.full ? "full" : "meta"].join("\n")
+      return runInflight(inflightDiff, key, () =>
+        retry(() =>
+          input.client.session.diff({
+            sessionID: input.sessionID,
+            ...(input.file ? { file: input.file } : {}),
+            ...(input.full ? { full: true } : {}),
+          }),
+        ).then((diff) => {
+          if (!tracked(input.directory, input.sessionID)) return
+          const data = diff.data ?? []
+          if (input.file) {
+            input.setStore("session_diff", input.sessionID, (items) => {
+              const list = items ?? []
+              const next = [...list]
+              for (const item of data) {
+                const idx = next.findIndex((row) => row.file === item.file)
+                if (idx >= 0) {
+                  next[idx] = {
+                    ...next[idx],
+                    ...item,
+                  }
+                  continue
+                }
+                next.push(item)
+              }
+              return next.sort((a, b) => cmp(a.file, b.file))
+            })
+          }
+          if (!input.file) {
+            input.setStore("session_diff", input.sessionID, reconcile(data, { key: "file" }))
+          }
+          if (input.rev) input.setStore("validity", input.sessionID, "diff", input.rev)
+          return !!input.rev
+        }),
+      )
+    }
+
+    const loadTodo = async (input: {
+      directory: string
+      client: typeof sdk.client
+      setStore: Setter
+      sessionID: string
+      rev?: string
+    }) => {
+      const key = keyFor(input.directory, input.sessionID)
+      return runInflight(inflightTodo, key, () =>
+        retry(() => input.client.session.todo({ sessionID: input.sessionID })).then((todo) => {
+          if (!tracked(input.directory, input.sessionID)) return
+          const list = todo.data ?? []
+          input.setStore("todo", input.sessionID, reconcile(list, { key: "id" }))
+          globalSync.todo.set(input.sessionID, list)
+          if (input.rev) input.setStore("validity", input.sessionID, "todo", input.rev)
+          return !!input.rev
+        }),
+      )
+    }
+
     const tracked = (directory: string, sessionID: string) => seen.get(directory)?.has(sessionID) ?? false
 
     const loadMessages = async (input: {
@@ -320,12 +499,12 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
       mode?: "replace" | "prepend"
     }) => {
       const key = keyFor(input.directory, input.sessionID)
-      if (meta.loading[key]) return
+      if (meta.loading[key]) return false
 
       setMeta("loading", key, true)
-      await fetchMessages(input)
+      const ok = await fetchMessages(input)
         .then((page) => {
-          if (!tracked(input.directory, input.sessionID)) return
+          if (!tracked(input.directory, input.sessionID)) return false
           const next = mergeOptimisticPage(page, getOptimistic(input.directory, input.sessionID))
           for (const messageID of next.confirmed) {
             clearOptimistic(input.directory, input.sessionID, messageID)
@@ -349,6 +528,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
               complete: next.complete,
             })
           })
+          return true
         })
         .finally(() => {
           setMeta(
@@ -361,6 +541,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
             }),
           )
         })
+      return ok ?? false
     }
 
     return {
@@ -458,11 +639,96 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
 
             const hasSession = Binary.search(store.session, sessionID, (s) => s.id).found
             const cached = store.message[sessionID] !== undefined && meta.limit[key] !== undefined
-            if (cached && hasSession && !opts?.force) return
+            const remote = !opts?.force ? await validity(sessionID).catch(() => undefined) : undefined
+            if (remote) {
+              const todo = globalSync.data.session_todo[sessionID]
+
+              // Once validity succeeds, surface any previously cached sections into the
+              // active child store before deciding whether to fetch. This keeps revisits
+              // fast while stale sections still refresh in the background.
+              if (todo && store.todo[sessionID] === undefined) {
+                setStore("todo", sessionID, reconcile(todo, { key: "id" }))
+              }
+
+              const opt = settings.general.bandwidthOptimization()
+              const plan = planValidity({
+                cached: {
+                  message: cached,
+                  todo: store.todo[sessionID] !== undefined || globalSync.data.session_todo[sessionID] !== undefined,
+                  diff: store.session_diff[sessionID] !== undefined,
+                  status: store.session_status[sessionID] !== undefined,
+                },
+                local: store.validity[sessionID],
+                remote,
+              })
+              // Keep optimized-mode review payloads demand-driven so merely opening
+              // a session does not refresh diffs before the user asks for them.
+              const diff = plan.diff && !opt
+              // Revalidated cached sessions can keep their existing metadata while
+              // section-level stale payloads refresh independently.
+              const refresh = !hasSession || !!opts?.force
+              if (cached && hasSession && !refresh && !plan.message && !plan.todo && !diff && !plan.status) return
+
+              // Keep markers stale until each matching reload succeeds so failed
+              // refreshes cannot bless old cached sections as current.
+                const ok = await Promise.all([
+                  refresh
+                    ? retry(() => client.session.get({ sessionID })).then((session) => {
+                        if (!tracked(directory, sessionID)) return
+                        const data = session.data
+                        if (!data) return
+                        setStore(
+                          "session",
+                          produce((draft) => {
+                            const match = Binary.search(draft, sessionID, (s) => s.id)
+                            if (match.found) {
+                              draft[match.index] = data
+                              return
+                            }
+                            draft.splice(match.index, 0, data)
+                          }),
+                        )
+                        return true
+                      })
+                    : Promise.resolve(true),
+                  !cached || plan.message
+                    ? loadMessages({
+                        directory,
+                        client,
+                        setStore,
+                        sessionID,
+                        limit: meta.limit[key] ?? messagePageSize,
+                      })
+                    : Promise.resolve(true),
+                  plan.todo ? loadTodo({ directory, client, setStore, sessionID, rev: remote.todo }) : Promise.resolve(true),
+                  diff ? loadDiff({ directory, client, setStore, sessionID, rev: remote.diff, full: true }) : Promise.resolve(!plan.diff),
+                  plan.status
+                    ? loadStatus({ directory, client, setStore, sessionID, rev: remote.status })
+                    : Promise.resolve(true),
+                ])
+              if (!tracked(directory, sessionID)) return
+              setStore(
+                "validity",
+                sessionID,
+                nextValidity({
+                  local: store.validity[sessionID],
+                  remote,
+                  ok: {
+                    message: !!ok[1],
+                    todo: !!ok[2],
+                    diff: !!ok[3],
+                    status: !!ok[4],
+                  },
+                }),
+              )
+              return
+            }
+
+            if (shouldReuseSession({ cached, hasSession, local: store.validity[sessionID], remote })) return
 
             const limit = meta.limit[key] ?? messagePageSize
             const sessionReq =
-              hasSession && !opts?.force
+              hasSession && !opts?.force && !!remote
                 ? Promise.resolve()
                 : retry(() => client.session.get({ sessionID })).then((session) => {
                     if (!tracked(directory, sessionID)) return
@@ -479,10 +745,10 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
                         draft.splice(match.index, 0, data)
                       }),
                     )
-                  })
+                    })
 
             const messagesReq =
-              cached && !opts?.force
+              cached && !opts?.force && !!remote
                 ? Promise.resolve()
                 : loadMessages({
                     directory,
@@ -492,23 +758,52 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
                     limit,
                   })
 
-            await Promise.all([sessionReq, messagesReq])
+            const todoReq =
+              opts?.force || store.todo[sessionID] !== undefined || globalSync.data.session_todo[sessionID] !== undefined
+                ? loadTodo({ directory, client, setStore, sessionID })
+                : Promise.resolve()
+
+            const diffReq =
+              (settings.general.bandwidthOptimization() && !opts?.force) ||
+              (!opts?.force && store.session_diff[sessionID] === undefined)
+                ? Promise.resolve()
+                : loadDiff({ directory, client, setStore, sessionID, full: true })
+
+            const statusReq =
+              opts?.force || store.session_status[sessionID] !== undefined
+                ? loadStatus({ directory, client, setStore, sessionID })
+                : Promise.resolve()
+
+            await Promise.all([sessionReq, messagesReq, todoReq, diffReq, statusReq])
+            clearValidity(setStore, directory, sessionID)
           })
         },
-        async diff(sessionID: string, opts?: { force?: boolean }) {
+        async diff(sessionID: string, opts?: { force?: boolean; full?: boolean }) {
           const directory = sdk.directory
           const client = sdk.client
           const [store, setStore] = globalSync.child(directory)
           touch(directory, setStore, sessionID)
-          if (store.session_diff[sessionID] !== undefined && !opts?.force) return
-
-          const key = keyFor(directory, sessionID)
-          return runInflight(inflightDiff, key, () =>
-            retry(() => client.session.diff({ sessionID })).then((diff) => {
-              if (!tracked(directory, sessionID)) return
-              setStore("session_diff", sessionID, reconcile(diff.data ?? [], { key: "file" }))
-            }),
+          const full = opts?.full ?? true
+          const remote = !opts?.force ? await validity(sessionID).catch(() => undefined) : undefined
+          if (
+            !opts?.force &&
+            store.session_diff[sessionID] !== undefined &&
+            (!full || hasFull(store.session_diff[sessionID] ?? [])) &&
+            sameValidity({ cached: true, local: store.validity[sessionID]?.diff, remote: remote?.diff })
           )
+            return
+          const ok = await loadDiff({ directory, client, setStore, sessionID, rev: remote?.diff, full })
+          if (opts?.force) clearValidity(setStore, directory, sessionID, "diff")
+          return ok
+        },
+        async diffFile(sessionID: string, file: string, opts?: { force?: boolean }) {
+          const directory = sdk.directory
+          const client = sdk.client
+          const [store, setStore] = globalSync.child(directory)
+          touch(directory, setStore, sessionID)
+          const current = (store.session_diff[sessionID] ?? []).find((item) => item.file === file)
+          if (!opts?.force && current && hasDetails(current)) return
+          await loadDiff({ directory, client, setStore, sessionID, file, full: true })
         },
         async todo(sessionID: string, opts?: { force?: boolean }) {
           const directory = sdk.directory
@@ -517,26 +812,23 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           touch(directory, setStore, sessionID)
           const existing = store.todo[sessionID]
           const cached = globalSync.data.session_todo[sessionID]
+          const remote = !opts?.force ? await validity(sessionID).catch(() => undefined) : undefined
+          const stale = !sameValidity({ cached: existing !== undefined || cached !== undefined, local: store.validity[sessionID]?.todo, remote: remote?.todo })
           if (existing !== undefined) {
             if (cached === undefined) {
               globalSync.todo.set(sessionID, existing)
             }
-            if (!opts?.force) return
+            if (!opts?.force && !stale) return
           }
 
           if (cached !== undefined) {
             setStore("todo", sessionID, reconcile(cached, { key: "id" }))
+            if (!stale && !opts?.force) return
           }
 
-          const key = keyFor(directory, sessionID)
-          return runInflight(inflightTodo, key, () =>
-            retry(() => client.session.todo({ sessionID })).then((todo) => {
-              if (!tracked(directory, sessionID)) return
-              const list = todo.data ?? []
-              setStore("todo", sessionID, reconcile(list, { key: "id" }))
-              globalSync.todo.set(sessionID, list)
-            }),
-          )
+          const ok = await loadTodo({ directory, client, setStore, sessionID, rev: remote?.todo })
+          if (opts?.force) clearValidity(setStore, directory, sessionID, "todo")
+          return ok
         },
         history: {
           more(sessionID: string) {

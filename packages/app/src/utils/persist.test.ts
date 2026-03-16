@@ -112,4 +112,29 @@ describe("persist localStorage resilience", () => {
     expect(result.endsWith(".dat")).toBeTrue()
     expect(/[:\\/]/.test(result)).toBeFalse()
   })
+
+  test("normalizer fills missing nested settings keys from defaults", () => {
+    const result = persistTesting.normalize(
+      {
+        general: {
+          autoSave: true,
+          bandwidthOptimization: false,
+        },
+      },
+      JSON.stringify({
+        general: {
+          autoSave: false,
+        },
+      }),
+    )
+
+    expect(result).toBe(
+      JSON.stringify({
+        general: {
+          autoSave: false,
+          bandwidthOptimization: false,
+        },
+      }),
+    )
+  })
 })

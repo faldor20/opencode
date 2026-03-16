@@ -230,6 +230,46 @@ describe("JSON to SQLite migration", () => {
     expect(sessions[0].share_url).toBe("https://example.com/share")
   })
 
+  test("seeds diff revision from legacy session diff files", async () => {
+    const diffs = [
+      {
+        file: "src/app.ts",
+        before: "old",
+        after: "new",
+        additions: 1,
+        deletions: 0,
+        status: "modified",
+      },
+    ]
+
+    await writeProject(storageDir, {
+      id: "proj_test123abc",
+      worktree: "/test/path",
+      time: { created: Date.now(), updated: Date.now() },
+      sandboxes: [],
+    })
+
+    await writeSession(storageDir, "proj_test123abc", {
+      id: "ses_test456def",
+      projectID: "proj_test123abc",
+      slug: "test-session",
+      directory: "/test/dir",
+      title: "Test Session Title",
+      version: "1.0.0",
+      time: { created: 1700000000000, updated: 1700000001000 },
+    })
+
+    await Bun.write(path.join(storageDir, "session_diff", "ses_test456def.json"), JSON.stringify(diffs))
+
+    await JsonMigration.run(sqlite)
+
+    const db = drizzle({ client: sqlite })
+    const sessions = db.select().from(SessionTable).all()
+    expect(sessions.length).toBe(1)
+    expect(sessions[0].diff_revision).toBe(1)
+    expect(await Bun.file(path.join(storageDir, "session_diff", "ses_test456def.json")).json()).toEqual(diffs)
+  })
+
   test("migrates messages and parts", async () => {
     await writeProject(storageDir, {
       id: "proj_test123abc",

@@ -255,8 +255,8 @@ export namespace Snapshot {
   export const FileDiff = z
     .object({
       file: z.string(),
-      before: z.string(),
-      after: z.string(),
+      before: z.string().optional(),
+      after: z.string().optional(),
       additions: z.number(),
       deletions: z.number(),
       status: z.enum(["added", "deleted", "modified"]).optional(),
@@ -265,6 +265,10 @@ export namespace Snapshot {
       ref: "FileDiff",
     })
   export type FileDiff = z.infer<typeof FileDiff>
+  export const FileDiffMeta = FileDiff.omit({ before: true, after: true }).meta({
+    ref: "FileDiffMeta",
+  })
+  export type FileDiffMeta = z.infer<typeof FileDiffMeta>
   export async function diffFull(from: string, to: string): Promise<FileDiff[]> {
     const git = gitdir()
     const result: FileDiff[] = []

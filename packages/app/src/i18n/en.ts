@@ -732,6 +732,9 @@ export const dict = {
   "settings.general.row.followup.option.steer": "Steer",
   "settings.general.row.reasoningSummaries.title": "Show reasoning summaries",
   "settings.general.row.reasoningSummaries.description": "Display model reasoning summaries in the timeline",
+  "settings.general.row.bandwidthOptimization.title": "Bandwidth optimization",
+  "settings.general.row.bandwidthOptimization.description":
+    "Reduce background and history bandwidth use, which may delay loading until it is needed",
   "settings.general.row.shellToolPartsExpanded.title": "Expand shell tool parts",
   "settings.general.row.shellToolPartsExpanded.description":
     "Show shell tool parts expanded by default in the timeline",

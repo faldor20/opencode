@@ -587,6 +587,9 @@ export const dict = {
   "settings.general.row.reasoningSummaries.title": "Afficher les résumés de raisonnement",
   "settings.general.row.reasoningSummaries.description":
     "Afficher les résumés de raisonnement du modèle dans la chronologie",
+  "settings.general.row.bandwidthOptimization.title": "Optimisation de la bande passante",
+  "settings.general.row.bandwidthOptimization.description":
+    "Réduit l'utilisation de la bande passante en arrière-plan et pour l'historique, et peut retarder le chargement jusqu'à ce que ce soit nécessaire",
   "settings.general.row.shellToolPartsExpanded.title": "Développer les parties de l'outil shell",
   "settings.general.row.shellToolPartsExpanded.description":
     "Afficher les parties de l'outil shell développées par défaut dans la chronologie",

@@ -149,6 +149,8 @@ import type {
   SessionUnshareResponses,
   SessionUpdateErrors,
   SessionUpdateResponses,
+  SessionValidityErrors,
+  SessionValidityResponses,
   SubtaskPartInput,
   TextPartInput,
   ToolIdsErrors,
@@ -1528,6 +1530,38 @@ export class Session2 extends HeyApiClient {
   }
 
   /**
+   * Get session validity markers
+   *
+   * Retrieve lightweight revision markers for cached session sections.
+   */
+  public validity<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<SessionValidityResponses, SessionValidityErrors, ThrowOnError>({
+      url: "/session/{sessionID}/validity",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
    * Initialize session
    *
    * Analyze the current application and create an AGENTS.md file with project-specific agent configurations.
@@ -1716,6 +1750,8 @@ export class Session2 extends HeyApiClient {
       directory?: string
       workspace?: string
       messageID?: string
+      file?: string
+      full?: boolean
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -1728,6 +1764,8 @@ export class Session2 extends HeyApiClient {
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
             { in: "query", key: "messageID" },
+            { in: "query", key: "file" },
+            { in: "query", key: "full" },
           ],
         },
       ],

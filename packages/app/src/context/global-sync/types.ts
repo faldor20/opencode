@@ -14,6 +14,7 @@ import type {
   QuestionRequest,
   Session,
   SessionStatus,
+  SessionValidity,
   Todo,
   VcsInfo,
 } from "@opencode-ai/sdk/v2/client"
@@ -69,6 +70,9 @@ export type State = {
   }
   part: {
     [messageID: string]: Part[]
+  }
+  validity: {
+    [sessionID: string]: SessionValidity
   }
 }
 

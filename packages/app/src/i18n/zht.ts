@@ -632,6 +632,8 @@ export const dict = {
   "settings.general.row.followup.option.steer": "引導",
   "settings.general.row.reasoningSummaries.title": "顯示推理摘要",
   "settings.general.row.reasoningSummaries.description": "在時間軸中顯示模型推理摘要",
+  "settings.general.row.bandwidthOptimization.title": "頻寬最佳化",
+  "settings.general.row.bandwidthOptimization.description": "降低背景與歷史記錄的頻寬使用，並可能延後載入直到需要時才進行",
 
   "settings.general.row.shellToolPartsExpanded.title": "展開 shell 工具區塊",
   "settings.general.row.shellToolPartsExpanded.description": "在時間軸中預設展開 shell 工具區塊",

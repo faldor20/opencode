@@ -576,6 +576,9 @@ export const dict = {
   "settings.general.row.followup.option.steer": "即座に実行 (Steer)",
   "settings.general.row.reasoningSummaries.title": "推論の要約を表示",
   "settings.general.row.reasoningSummaries.description": "タイムラインにモデルの推論の要約を表示します",
+  "settings.general.row.bandwidthOptimization.title": "帯域幅の最適化",
+  "settings.general.row.bandwidthOptimization.description":
+    "バックグラウンド処理や履歴で使う帯域幅を減らし、必要になるまで読み込みを遅らせることがあります",
   "settings.general.row.shellToolPartsExpanded.title": "shell ツールパーツを展開",
   "settings.general.row.shellToolPartsExpanded.description":
     "タイムラインで shell ツールパーツをデフォルトで展開して表示します",
