@@ -330,14 +330,13 @@ export default function Page() {
 
     const box = root.getBoundingClientRect()
     const line = box.top + 100
-    const list = [...root.querySelectorAll<HTMLElement>("[data-message-id]")]
-      .flatMap((el) => {
-        const id = el.dataset.messageId
-        if (!id) return []
+    const list = [...root.querySelectorAll<HTMLElement>("[data-message-id]")].flatMap((el) => {
+      const id = el.dataset.messageId
+      if (!id) return []
 
-        const rect = el.getBoundingClientRect()
-        return [{ id, top: rect.top, bottom: rect.bottom }]
-      })
+      const rect = el.getBoundingClientRect()
+      return [{ id, top: rect.top, bottom: rect.bottom }]
+    })
 
     const shown = list.filter((item) => item.bottom > box.top && item.top < box.bottom)
     const hit = shown.find((item) => item.top <= line && item.bottom >= line)
@@ -928,10 +927,7 @@ export default function Page() {
   createEffect(
     on(
       () =>
-        [
-          sessionKey(),
-          isDesktop() ? desktopFileTreeOpen() || reviewWanted() : store.mobileTab === "changes",
-        ] as const,
+        [sessionKey(), isDesktop() ? desktopFileTreeOpen() || reviewWanted() : store.mobileTab === "changes"] as const,
       ([key, wants]) => {
         if (diffFrame !== undefined) cancelAnimationFrame(diffFrame)
         if (diffTimer !== undefined) window.clearTimeout(diffTimer)

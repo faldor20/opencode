@@ -74,16 +74,12 @@ export function shouldReuseSession(input: {
   )
 }
 
-export function nextValidity(input: {
-  local?: SessionValidity
-  remote: SessionValidity
-  ok: Record<string, boolean>
-}) {
+export function nextValidity(input: { local?: SessionValidity; remote: SessionValidity; ok: Record<string, boolean> }) {
   return {
-    message: input.ok.message ? input.remote.message : input.local?.message ?? "",
-    todo: input.ok.todo ? input.remote.todo : input.local?.todo ?? "",
-    diff: input.ok.diff ? input.remote.diff : input.local?.diff ?? "",
-    status: input.ok.status ? input.remote.status : input.local?.status ?? "",
+    message: input.ok.message ? input.remote.message : (input.local?.message ?? ""),
+    todo: input.ok.todo ? input.remote.todo : (input.local?.todo ?? ""),
+    diff: input.ok.diff ? input.remote.diff : (input.local?.diff ?? ""),
+    status: input.ok.status ? input.remote.status : (input.local?.status ?? ""),
   }
 }
 
@@ -96,11 +92,7 @@ function blankValidity(): SessionValidity {
   }
 }
 
-export function planValidity(input: {
-  cached: ValidityPlan
-  local?: SessionValidity
-  remote?: SessionValidity
-}) {
+export function planValidity(input: { cached: ValidityPlan; local?: SessionValidity; remote?: SessionValidity }) {
   if (!input.remote || !input.local) return input.cached
   return {
     message: input.cached.message && input.local.message !== input.remote.message,
@@ -671,41 +663,45 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
 
               // Keep markers stale until each matching reload succeeds so failed
               // refreshes cannot bless old cached sections as current.
-                const ok = await Promise.all([
-                  refresh
-                    ? retry(() => client.session.get({ sessionID })).then((session) => {
-                        if (!tracked(directory, sessionID)) return
-                        const data = session.data
-                        if (!data) return
-                        setStore(
-                          "session",
-                          produce((draft) => {
-                            const match = Binary.search(draft, sessionID, (s) => s.id)
-                            if (match.found) {
-                              draft[match.index] = data
-                              return
-                            }
-                            draft.splice(match.index, 0, data)
-                          }),
-                        )
-                        return true
-                      })
-                    : Promise.resolve(true),
-                  !cached || plan.message
-                    ? loadMessages({
-                        directory,
-                        client,
-                        setStore,
-                        sessionID,
-                        limit: meta.limit[key] ?? messagePageSize,
-                      })
-                    : Promise.resolve(true),
-                  plan.todo ? loadTodo({ directory, client, setStore, sessionID, rev: remote.todo }) : Promise.resolve(true),
-                  diff ? loadDiff({ directory, client, setStore, sessionID, rev: remote.diff, full: true }) : Promise.resolve(!plan.diff),
-                  plan.status
-                    ? loadStatus({ directory, client, setStore, sessionID, rev: remote.status })
-                    : Promise.resolve(true),
-                ])
+              const ok = await Promise.all([
+                refresh
+                  ? retry(() => client.session.get({ sessionID })).then((session) => {
+                      if (!tracked(directory, sessionID)) return
+                      const data = session.data
+                      if (!data) return
+                      setStore(
+                        "session",
+                        produce((draft) => {
+                          const match = Binary.search(draft, sessionID, (s) => s.id)
+                          if (match.found) {
+                            draft[match.index] = data
+                            return
+                          }
+                          draft.splice(match.index, 0, data)
+                        }),
+                      )
+                      return true
+                    })
+                  : Promise.resolve(true),
+                !cached || plan.message
+                  ? loadMessages({
+                      directory,
+                      client,
+                      setStore,
+                      sessionID,
+                      limit: meta.limit[key] ?? messagePageSize,
+                    })
+                  : Promise.resolve(true),
+                plan.todo
+                  ? loadTodo({ directory, client, setStore, sessionID, rev: remote.todo })
+                  : Promise.resolve(true),
+                diff
+                  ? loadDiff({ directory, client, setStore, sessionID, rev: remote.diff, full: true })
+                  : Promise.resolve(!plan.diff),
+                plan.status
+                  ? loadStatus({ directory, client, setStore, sessionID, rev: remote.status })
+                  : Promise.resolve(true),
+              ])
               if (!tracked(directory, sessionID)) return
               setStore(
                 "validity",
@@ -745,7 +741,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
                         draft.splice(match.index, 0, data)
                       }),
                     )
-                    })
+                  })
 
             const messagesReq =
               cached && !opts?.force && !!remote
@@ -759,7 +755,9 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
                   })
 
             const todoReq =
-              opts?.force || store.todo[sessionID] !== undefined || globalSync.data.session_todo[sessionID] !== undefined
+              opts?.force ||
+              store.todo[sessionID] !== undefined ||
+              globalSync.data.session_todo[sessionID] !== undefined
                 ? loadTodo({ directory, client, setStore, sessionID })
                 : Promise.resolve()
 
@@ -813,7 +811,11 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           const existing = store.todo[sessionID]
           const cached = globalSync.data.session_todo[sessionID]
           const remote = !opts?.force ? await validity(sessionID).catch(() => undefined) : undefined
-          const stale = !sameValidity({ cached: existing !== undefined || cached !== undefined, local: store.validity[sessionID]?.todo, remote: remote?.todo })
+          const stale = !sameValidity({
+            cached: existing !== undefined || cached !== undefined,
+            local: store.validity[sessionID]?.todo,
+            remote: remote?.todo,
+          })
           if (existing !== undefined) {
             if (cached === undefined) {
               globalSync.todo.set(sessionID, existing)

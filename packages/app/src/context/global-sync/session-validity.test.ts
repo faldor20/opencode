@@ -155,10 +155,7 @@ function state(input?: Partial<State>): State {
   }
 }
 
-function setup(input: {
-  store: State
-  client: typeof sdk.client
-}) {
+function setup(input: { store: State; client: typeof sdk.client }) {
   const child = createStore(input.store)
   globalSync = {
     data: { project: [], session_todo: {} },
@@ -643,7 +640,9 @@ describe("session validity sync flows", () => {
       },
     })
 
-    await run((sync) => Promise.all([sync.session.diffFile(sessionID, "a.ts"), sync.session.diffFile(sessionID, "b.ts")]))
+    await run((sync) =>
+      Promise.all([sync.session.diffFile(sessionID, "a.ts"), sync.session.diffFile(sessionID, "b.ts")]),
+    )
 
     expect(calls).toEqual([
       { file: "a.ts", full: true },

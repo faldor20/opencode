@@ -2287,6 +2287,76 @@
         ]
       }
     },
+    "/session/{sessionID}/validity": {
+      "get": {
+        "operationId": "session.validity",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sessionID",
+            "schema": {
+              "type": "string",
+              "pattern": "^ses.*"
+            },
+            "required": true
+          }
+        ],
+        "summary": "Get session validity markers",
+        "description": "Retrieve lightweight revision markers for cached session sections.",
+        "responses": {
+          "200": {
+            "description": "Section validity markers",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionValidity"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFoundError"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.session.validity({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/session/{sessionID}/init": {
       "post": {
         "operationId": "session.init",
@@ -2685,6 +2755,20 @@
             "schema": {
               "type": "string",
               "pattern": "^msg.*"
+            }
+          },
+          {
+            "in": "query",
+            "name": "file",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "full",
+            "schema": {
+              "type": "boolean"
             }
           }
         ],
@@ -7454,7 +7538,7 @@
             "enum": ["added", "deleted", "modified"]
           }
         },
-        "required": ["file", "before", "after", "additions", "deletions"]
+        "required": ["file", "additions", "deletions"]
       },
       "UserMessage": {
         "type": "object",
@@ -11380,6 +11464,24 @@
           }
         },
         "required": ["name", "uri", "client"]
+      },
+      "SessionValidity": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "todo": {
+            "type": "string"
+          },
+          "diff": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": ["message", "todo", "diff", "status"]
       },
       "TextPartInput": {
         "type": "object",

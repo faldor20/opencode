@@ -311,7 +311,9 @@ describe("session validity endpoint", () => {
       fn: async () => {
         const session = await Session.create({})
         const app = Server.Default()
-        const stale = [{ file: "a.ts", before: "sha-a", after: "sha-b", additions: 1, deletions: 0, status: "modified" }] as const
+        const stale = [
+          { file: "a.ts", before: "sha-a", after: "sha-b", additions: 1, deletions: 0, status: "modified" },
+        ] as const
 
         await Storage.write(["session_diff", session.id], [...stale])
         await Session.setRevert({
@@ -346,7 +348,9 @@ describe("session validity endpoint", () => {
       fn: async () => {
         const session = await Session.create({})
         const app = Server.Default()
-        const diffs = [{ file: "b.ts", before: "sha-a", after: "sha-b", additions: 3, deletions: 1, status: "modified" }] as const
+        const diffs = [
+          { file: "b.ts", before: "sha-a", after: "sha-b", additions: 3, deletions: 1, status: "modified" },
+        ] as const
 
         await Session.setRevert({
           sessionID: session.id,
@@ -406,15 +410,18 @@ describe("session validity endpoint", () => {
         )
         const get = Session.get
         const spy = spyOn(Session, "get").mockImplementation(
-          Object.assign(async (_id: Parameters<typeof Session.get>[0]) => {
-            throw new Error("validity should not call Session.get")
-          }, { force: get.force, schema: get.schema }),
+          Object.assign(
+            async (_id: Parameters<typeof Session.get>[0]) => {
+              throw new Error("validity should not call Session.get")
+            },
+            { force: get.force, schema: get.schema },
+          ),
         )
 
         const res = await app.request(`/session/${session.id}/validity`)
 
         expect(res.status).toBe(200)
-        expect((await res.json() as Record<string, string>).diff).toBe("2")
+        expect(((await res.json()) as Record<string, string>).diff).toBe("2")
         expect(spy).not.toHaveBeenCalled()
         spy.mockRestore()
 

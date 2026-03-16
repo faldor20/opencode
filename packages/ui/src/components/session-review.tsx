@@ -481,7 +481,10 @@ export const SessionReview = (props: SessionReviewProps) => {
                             <Show when={expanded()}>
                               <Switch>
                                 <Match when={!hasDetails(item())}>
-                                  <div data-slot="session-review-loading" class="px-4 py-3 text-12-regular text-text-weak">
+                                  <div
+                                    data-slot="session-review-loading"
+                                    class="px-4 py-3 text-12-regular text-text-weak"
+                                  >
                                     {i18n.t("common.loading")}
                                     {i18n.t("common.loading.ellipsis")}
                                   </div>

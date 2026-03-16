@@ -20,42 +20,44 @@ export namespace WorkspaceServer {
       })
       .route("/", SessionRoutes())
 
-    return new Hono()
-      // Match the main server so regular responses compress while SSE stays untouched.
-      .use(compress())
-      .use(async (c, next) => {
-        const rawWorkspaceID = c.req.query("workspace") || c.req.header("x-opencode-workspace")
-        const raw = c.req.query("directory") || c.req.header("x-opencode-directory")
-        if (rawWorkspaceID == null) {
-          throw new Error("workspaceID parameter is required")
-        }
-        if (raw == null) {
-          throw new Error("directory parameter is required")
-        }
-
-        const directory = (() => {
-          try {
-            return decodeURIComponent(raw)
-          } catch {
-            return raw
+    return (
+      new Hono()
+        // Match the main server so regular responses compress while SSE stays untouched.
+        .use(compress())
+        .use(async (c, next) => {
+          const rawWorkspaceID = c.req.query("workspace") || c.req.header("x-opencode-workspace")
+          const raw = c.req.query("directory") || c.req.header("x-opencode-directory")
+          if (rawWorkspaceID == null) {
+            throw new Error("workspaceID parameter is required")
           }
-        })()
+          if (raw == null) {
+            throw new Error("directory parameter is required")
+          }
 
-        return WorkspaceContext.provide({
-          workspaceID: WorkspaceID.make(rawWorkspaceID),
-          async fn() {
-            return Instance.provide({
-              directory,
-              init: InstanceBootstrap,
-              async fn() {
-                return next()
-              },
-            })
-          },
+          const directory = (() => {
+            try {
+              return decodeURIComponent(raw)
+            } catch {
+              return raw
+            }
+          })()
+
+          return WorkspaceContext.provide({
+            workspaceID: WorkspaceID.make(rawWorkspaceID),
+            async fn() {
+              return Instance.provide({
+                directory,
+                init: InstanceBootstrap,
+                async fn() {
+                  return next()
+                },
+              })
+            },
+          })
         })
-      })
-      .route("/session", session)
-      .route("/", WorkspaceServerRoutes())
+        .route("/session", session)
+        .route("/", WorkspaceServerRoutes())
+    )
   }
 
   export function Listen(opts: { hostname: string; port: number }) {

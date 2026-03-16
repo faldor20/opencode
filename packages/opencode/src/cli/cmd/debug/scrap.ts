@@ -8,6 +8,7 @@ export const ScrapCommand = cmd({
   describe: "list all known projects",
   builder: (yargs) => yargs,
   async handler() {
+    console.log("HELLO FROM SCRAP COMMAND")
     const timer = Log.Default.time("scrap")
     const list = await Project.list()
     process.stdout.write(JSON.stringify(list, null, 2) + EOL)

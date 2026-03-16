@@ -484,13 +484,13 @@ export namespace Session {
     return Database.use((db) => {
       const row = db
         .update(SessionTable)
-          .set({
-            // Revert cleanup only clears revert state. Diff summary metadata may
-            // already have been rebuilt to match the live session state.
-            revert: null,
-            diff_revision: step(SessionTable.diff_revision),
-            time_updated: tick(),
-          })
+        .set({
+          // Revert cleanup only clears revert state. Diff summary metadata may
+          // already have been rebuilt to match the live session state.
+          revert: null,
+          diff_revision: step(SessionTable.diff_revision),
+          time_updated: tick(),
+        })
         .where(eq(SessionTable.id, sessionID))
         .returning()
         .get()

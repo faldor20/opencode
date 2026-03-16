@@ -163,11 +163,7 @@ function state(input?: Partial<State>): State {
   }
 }
 
-function setup(input: {
-  store: State
-  client: typeof sdk.client
-  todos?: Record<string, Todo[]>
-}) {
+function setup(input: { store: State; client: typeof sdk.client; todos?: Record<string, Todo[]> }) {
   const child = createStore(input.store)
   globalSync = {
     data: { project: [], session_todo: { ...(input.todos ?? {}) } },
@@ -342,7 +338,10 @@ describe("sync optimistic reducers", () => {
           },
           messages: async () => {
             calls.messages++
-            return { data: [{ info: list[0]!, parts: [textPart("prt_1", sessionID, list[0]!.id)] }], response: new Response(null) }
+            return {
+              data: [{ info: list[0]!, parts: [textPart("prt_1", sessionID, list[0]!.id)] }],
+              response: new Response(null),
+            }
           },
           todo: async () => {
             calls.todo++
@@ -413,7 +412,10 @@ describe("sync optimistic reducers", () => {
           },
           messages: async () => {
             calls.messages++
-            return { data: [{ info: list[0]!, parts: [textPart("prt_1", sessionID, list[0]!.id)] }], response: new Response(null) }
+            return {
+              data: [{ info: list[0]!, parts: [textPart("prt_1", sessionID, list[0]!.id)] }],
+              response: new Response(null),
+            }
           },
           todo: async () => {
             calls.todo++
@@ -484,7 +486,10 @@ describe("sync optimistic reducers", () => {
           },
           messages: async () => {
             calls.messages++
-            return { data: [{ info: fresh, parts: [textPart("prt_2", sessionID, fresh.id)] }], response: new Response(null) }
+            return {
+              data: [{ info: fresh, parts: [textPart("prt_2", sessionID, fresh.id)] }],
+              response: new Response(null),
+            }
           },
           todo: async () => {
             calls.todo++
@@ -644,7 +649,10 @@ describe("sync optimistic reducers", () => {
           },
           messages: async () => {
             calls.messages++
-            return { data: [{ info: fresh, parts: [textPart("prt_2", sessionID, fresh.id)] }], response: new Response(null) }
+            return {
+              data: [{ info: fresh, parts: [textPart("prt_2", sessionID, fresh.id)] }],
+              response: new Response(null),
+            }
           },
           todo: async () => {
             calls.todo++
@@ -698,7 +706,10 @@ describe("sync optimistic reducers", () => {
           },
           messages: async () => {
             calls.messages++
-            return { data: [{ info: fresh, parts: [textPart("prt_2", sessionID, fresh.id)] }], response: new Response(null) }
+            return {
+              data: [{ info: fresh, parts: [textPart("prt_2", sessionID, fresh.id)] }],
+              response: new Response(null),
+            }
           },
           todo: async () => {
             calls.todo++

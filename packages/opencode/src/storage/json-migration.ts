@@ -107,16 +107,17 @@ export namespace JsonMigration {
 
     // Pre-scan all files upfront to avoid repeated glob operations
     log.info("scanning files...")
-    const [projectFiles, sessionFiles, messageFiles, partFiles, diffFiles, todoFiles, permFiles, shareFiles] = await Promise.all([
-      list("project/*.json"),
-      list("session/*/*.json"),
-      list("message/*/*.json"),
-      list("part/*/*.json"),
-      list("session_diff/*.json"),
-      list("todo/*.json"),
-      list("permission/*.json"),
-      list("session_share/*.json"),
-    ])
+    const [projectFiles, sessionFiles, messageFiles, partFiles, diffFiles, todoFiles, permFiles, shareFiles] =
+      await Promise.all([
+        list("project/*.json"),
+        list("session/*/*.json"),
+        list("message/*/*.json"),
+        list("part/*/*.json"),
+        list("session_diff/*.json"),
+        list("todo/*.json"),
+        list("permission/*.json"),
+        list("session_share/*.json"),
+      ])
 
     log.info("file scan complete", {
       projects: projectFiles.length,

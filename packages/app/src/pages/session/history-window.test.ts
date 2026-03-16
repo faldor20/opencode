@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { createRoot } from "solid-js"
 import { createStore } from "solid-js/store"
 
-const msg = (id: string) => ({ id } as UserMessage)
+const msg = (id: string) => ({ id }) as UserMessage
 
 const list = (count: number, start = 1) => Array.from({ length: count }, (_, i) => msg(String(start + i)))
 
@@ -35,8 +35,12 @@ afterEach(() => {
 
 async function api() {
   const mod = (await import("./history-window")) as Record<string, unknown>
-  expect(typeof mod.createSessionHistoryWindow, "session history helper should be exported for focused tests").toBe("function")
-  expect(typeof mod.shouldAutoFillHistory, "session auto-fill guard should be exported for focused tests").toBe("function")
+  expect(typeof mod.createSessionHistoryWindow, "session history helper should be exported for focused tests").toBe(
+    "function",
+  )
+  expect(typeof mod.shouldAutoFillHistory, "session auto-fill guard should be exported for focused tests").toBe(
+    "function",
+  )
   return {
     createSessionHistoryWindow: mod.createSessionHistoryWindow as (input: {
       bandwidthOptimization: () => boolean
@@ -77,72 +81,78 @@ function harness(input: {
   loaded?: number
   historyMore?: boolean
   historyLoading?: boolean
-    userScrolled?: boolean
-    hasScrollGesture?: boolean
-    scrollTop?: number
+  userScrolled?: boolean
+  hasScrollGesture?: boolean
+  scrollTop?: number
   scrollHeight?: number
   clientHeight?: number
-  loadMore?: (state: {
-    msgs: UserMessage[]
-    loaded: number
-    historyMore: boolean
-    historyLoading: boolean
-    userScrolled: boolean
-  }, setState: (next: Partial<{
-    msgs: UserMessage[]
-    loaded: number
-    historyMore: boolean
-    historyLoading: boolean
-    userScrolled: boolean
-  }>) => void, el: HTMLDivElement & { setHeight: (next: number) => void }) => void | Promise<void>
+  loadMore?: (
+    state: {
+      msgs: UserMessage[]
+      loaded: number
+      historyMore: boolean
+      historyLoading: boolean
+      userScrolled: boolean
+    },
+    setState: (
+      next: Partial<{
+        msgs: UserMessage[]
+        loaded: number
+        historyMore: boolean
+        historyLoading: boolean
+        userScrolled: boolean
+      }>,
+    ) => void,
+    el: HTMLDivElement & { setHeight: (next: number) => void },
+  ) => void | Promise<void>
 }) {
   return api().then(async (mod) => {
     const ctx = createRoot((dispose) => {
       const [state, setStore] = createStore({
         msgs: input.visible ?? list(20),
         loaded: input.loaded ?? (input.visible ?? list(20)).length,
-      historyMore: input.historyMore ?? true,
-      historyLoading: input.historyLoading ?? false,
-      userScrolled: input.userScrolled ?? true,
-      hasScrollGesture: input.hasScrollGesture ?? true,
-    })
-    const box = {
-      value: input.scrollHeight ?? 1000,
-      next: undefined as number | undefined,
-      flush() {
-        if (box.next === undefined) return
-        box.value = box.next
-        box.next = undefined
-      },
-    }
-    pending.add(box)
-    const el = {
-      scrollTop: input.scrollTop ?? 0,
-      clientHeight: input.clientHeight ?? 320,
-      get scrollHeight() {
-        return box.value
-      },
-      setHeight(next: number) {
-        box.next = next
-      },
-    } as HTMLDivElement & { setHeight: (next: number) => void }
-    const calls: string[] = []
-    const win = mod.createSessionHistoryWindow({
+        historyMore: input.historyMore ?? true,
+        historyLoading: input.historyLoading ?? false,
+        userScrolled: input.userScrolled ?? true,
+        hasScrollGesture: input.hasScrollGesture ?? true,
+      })
+      const box = {
+        value: input.scrollHeight ?? 1000,
+        next: undefined as number | undefined,
+        flush() {
+          if (box.next === undefined) return
+          box.value = box.next
+          box.next = undefined
+        },
+      }
+      pending.add(box)
+      const el = {
+        scrollTop: input.scrollTop ?? 0,
+        clientHeight: input.clientHeight ?? 320,
+        get scrollHeight() {
+          return box.value
+        },
+        setHeight(next: number) {
+          box.next = next
+        },
+      } as HTMLDivElement & { setHeight: (next: number) => void }
+      const calls: string[] = []
+      const win = mod.createSessionHistoryWindow({
         bandwidthOptimization: () => input.bandwidthOptimization,
         hasScrollGesture: () => state.hasScrollGesture,
         sessionID: () => "session",
-      messagesReady: () => true,
-      loaded: () => state.loaded,
-      visibleUserMessages: () => state.msgs,
-      historyMore: () => state.historyMore,
-      historyLoading: () => state.historyLoading,
-      loadMore: async (sessionID) => {
-        calls.push(sessionID)
-        await input.loadMore?.(state, (next) => setStore(next as never), el)
-      },
-      userScrolled: () => state.userScrolled,
-      scroller: () => el,
-    })
+        messagesReady: () => true,
+        loaded: () => state.loaded,
+        visibleUserMessages: () => state.msgs,
+        historyMore: () => state.historyMore,
+        historyLoading: () => state.historyLoading,
+        loadMore: async (sessionID) => {
+          calls.push(sessionID)
+          await input.loadMore?.(state, (next) => setStore(next as never), el)
+        },
+        userScrolled: () => state.userScrolled,
+        scroller: () => el,
+      })
       return {
         dispose: () => {
           pending.delete(box)
@@ -150,11 +160,11 @@ function harness(input: {
         },
         calls,
         state,
-      setStore,
-      el,
-      win,
-      shouldAutoFillHistory: mod.shouldAutoFillHistory,
-    }
+        setStore,
+        el,
+        win,
+        shouldAutoFillHistory: mod.shouldAutoFillHistory,
+      }
     })
     await tick()
     return ctx
